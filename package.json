@@ -1,0 +1,29 @@
+{
+	"name": "shareme",
+	"version": "1.0.0",
+	"description": "Local network file sharing application with folder upload support",
+	"main": "server.js",
+	"scripts": {
+		"start": "node --max-old-space-size=8192 --max-http-header-size=80000 server.js",
+		"dev": "nodemon --max-old-space-size=8192 --max-http-header-size=80000 server.js"
+	},
+	"keywords": [
+		"file-sharing",
+		"upload",
+		"local-network",
+		"express"
+	],
+	"author": "",
+	"license": "MIT",
+	"dependencies": {
+		"compression": "^1.8.1",
+		"dotenv": "^17.3.1",
+		"express": "^4.18.2",
+		"multer": "^1.4.5-lts.1",
+		"pdf-to-printer": "^5.7.0",
+		"ws": "^8.14.2"
+	},
+	"devDependencies": {
+		"nodemon": "^3.0.1"
+	}
+}
