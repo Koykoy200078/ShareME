@@ -1,6 +1,6 @@
 # 📁 ShareME - Local Network File Sharing
 
-A simple and elegant Node.js application for sharing files and folders over a trusted local network. Upload entire folders with their structure preserved, download files, and manage shared content through a web interface.
+A simple and elegant Node.js application for sharing files and folders over a trusted local network. Upload entire folders with their structure preserved, download files, and manage shared content through a modern Next.js web interface.
 
 > **Scope:** ShareME is intended for **local-network-only** usage (devices on the same trusted LAN/subnet). It is **not** designed for public internet exposure.
 
@@ -18,106 +18,70 @@ A simple and elegant Node.js application for sharing files and folders over a tr
 - **File Management** - View, download, and delete uploaded files
 - **Direct PDF Printing (Windows)** - Send PDF files to printer from the app
 - **Responsive Design** - Works on desktop, tablet, and mobile devices
-- **File Preview** - Icons for different file types
+- **File Preview** - Built-in modal to view PDFs, images, and videos directly
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Node.js (v14 or higher)
+- Node.js (v18 or higher recommended)
 - npm (comes with Node.js)
 
 ### Installation
 
 1. Install backend dependencies:
-
 ```powershell
-cd d:\Projects\ShareME
+cd C:\Projects\ShareME
 npm install
 ```
 
 2. Install frontend dependencies:
-
 ```powershell
-cd d:\Projects\ShareME\screens\sharemeweb
+cd screens\sharemeweb
 npm install
 ```
 
-3. Start the backend API server (recommended on port 3001):
-
-```powershell
-cd d:\Projects\ShareME
-$env:PORT="3001"
-npm run dev
+3. Configure your Environment:
+Create a `.env` file in the root directory (or use the existing one):
+```env
+PORT=3007
+FRONTEND_PORT=3000
 ```
 
-4. Start the Next.js frontend:
-
+4. Start the Application:
 ```powershell
-cd d:\Projects\ShareME\screens\sharemeweb
-npm run dev
+cd C:\Projects\ShareME
+npm run dev:all
 ```
 
 5. Open your browser and navigate to:
    - Local: `http://localhost:3000`
    - Network: `http://YOUR_LOCAL_IP:3000`
 
-6. Share the network URL only with users/devices on your same trusted LAN.
+## 📖 Deployment & Server Setup
 
-## 📖 Usage
+To deploy this application to a dedicated server PC on your network, use the included deployment scripts:
 
-### For the Server Host
+1. **Deploy to Server**: Run `.\scripts\deploy.ps1` from your local machine. It uses fast network sync (Robocopy) to push code to your server PC while skipping heavy `node_modules`.
+2. **Install on Server**: Connect to your server, navigate to the folder, and run `npm install` in both the root directory and `screens\sharemeweb`.
+3. **Register Background Task**: Run `.\scripts\register-shareme-startup.ps1` on the server as Administrator. ShareME will now automatically start completely hidden in the background every time the server boots up!
 
-1. Run backend (`PORT=3001`) from repo root and frontend (`next dev`) from `screens/sharemeweb`
-2. Use the frontend URL (e.g., `http://192.168.1.100:3000`) as the shared LAN entrypoint
-3. Keep backend API port internal to trusted LAN hosts only
-
-### For Clients (Users Uploading Files)
-
-1. Open the network URL in your browser
-2. Choose to upload either:
-   - **Select Files** - Upload individual files
-   - **Select Folder** - Upload an entire folder with its structure
-   - **Drag & Drop** - Drag files or folders directly to the upload area
-3. Click "Upload All Files" to start the upload
-4. View all shared files in the "Shared Files" section
-
-### File Operations
-
-- **Download** - Click the download button on any file card
-- **Delete** - Remove files you no longer need
-- **Refresh** - Update the file list to see new uploads
-
-## 🛠️ Development
-
-To run backend + frontend together with one command:
-
-```powershell
-cd d:\Projects\ShareME
-npm run dev:all
-```
-
-To run only the backend server with auto-reload:
-
-```powershell
-npm run dev
-```
+*(For a full breakdown, read the `scripts\SERVER_SETUP_GUIDE.md` document).*
 
 ## 📁 Project Structure
 
 ```
 ShareME/
-├── server.js           # Express server with upload handling
+├── server.js           # Express backend server with upload/print handling
+├── scripts/            # Deployment and auto-startup PowerShell scripts
 ├── screens/
-│   └── sharemeweb/     # Next.js frontend app
-│       ├── app/        # UI route/components
-│       └── public/
-│           └── shareme/
-│               ├── styles.css  # Legacy styles used by Next page
-│               └── script.js   # Legacy behavior script used by Next page
-├── uploads/           # Uploaded files storage (auto-created)
-├── package.json       # Dependencies
-└── README.md          # This file
+│   └── sharemeweb/     # Modern Next.js 16 frontend app
+│       ├── app/        # UI routes, components, contexts, and hooks
+│       └── public/     # Static assets
+├── uploads/            # Uploaded files storage (auto-created)
+├── package.json        # Dependencies
+├── .env                # Port configurations
+└── README.md           # This file
 ```
 
 ## 🔒 Security Notes
@@ -125,87 +89,32 @@ ShareME/
 - This application is designed for **local-network-only** use.
 - Only allow access from your trusted local subnet (same network).
 - **Do not expose this app to the internet** (no port forwarding, no public reverse proxy/NAT exposure).
-- By default, users on the LAN can upload, download, and delete files, and use print endpoints.
-- If your LAN is shared/semi-trusted (guest Wi-Fi, office shared network), use firewall/subnet isolation and add app-level auth (PIN/token) for sensitive actions.
-
-## 🧪 Audit Alignment (2026-05-07)
-
-Latest audit report: `docs/workspace-deep-audit-2026-05-07.md`
-
-The following hardening items are identified by audit and are not fully implemented yet:
-
-- Path traversal hardening for upload destination (`folderPath` validation and normalization).
-- Safer path boundary checks for delete/print file operations.
-- XSS-safe frontend rendering for file/folder names and paths.
-- Upload cancel/retry flow accuracy fixes (UI deadlock and retry accounting edge cases).
+- By default, users on the LAN can upload, download, delete files, and use print endpoints.
+- If your LAN is shared/semi-trusted (guest Wi-Fi, office shared network), use firewall/subnet isolation.
 
 ## 🌐 Network Configuration
 
-The server automatically:
-
-- Binds to `0.0.0.0` to accept connections from any network interface
-- Displays your local IP address for easy sharing
-- Should run on port `3001` when paired with Next.js dev server on `3000`
+The server automatically binds to `0.0.0.0` to accept connections from any network interface.
+The backend runs on port `3007`, and the Next.js frontend runs on `3000`.
 
 Recommended LAN controls:
-
-- Allow inbound access only on private network profile.
+- Allow inbound access only on private network profiles.
 - Restrict access to your trusted subnet via firewall rules.
-- Avoid exposing ports `3000` and `3001` beyond your local network.
+- Avoid exposing ports `3000` and `3007` beyond your local network.
 
-To find your network URL:
+## 📦 Core Dependencies
 
-- The server displays it on startup
-- Or check your IP with: `ipconfig` (Windows) / `ifconfig` (Mac/Linux)
-
-## 📦 Dependencies
-
-- **express** - Web server framework
+- **express** - Backend API framework
+- **next** - React frontend framework
 - **ws** - WebSocket real-time updates
-- **multer** - File upload handling
-- **compression** - Response compression
+- **multer** - Multipart file upload handling
 - **dotenv** - Environment variable loading
 - **pdf-to-printer** - Windows server-side PDF printing
-- **nodemon** - Development auto-reload (dev dependency)
-
-## 🎨 Features in Detail
-
-### Folder Structure Preservation
-
-When you upload a folder, the complete directory structure is maintained on the server, making it easy to share organized content.
-
-### Drag and Drop
-
-Simply drag folders or files from your file explorer directly into the browser window.
-
-### Visual Feedback
-
-- Upload progress bar
-- Success/error notifications
-- File type icons
-- File size and upload time display
-
-## 🔧 Configuration
-
-You can modify the following in `server.js`:
-
-- `PORT` - Change the server port (default: 3000)
-- `uploadsDir` - Change the upload directory location
+- **nodemon** / **turbopack** - Development auto-reload
 
 ## 📝 License
 
 MIT License - Feel free to use and modify for your needs.
-
-## 🤝 Contributing
-
-Contributions are welcome! Feel free to submit issues or pull requests.
-
-## 💡 Tips
-
-- Make sure all devices are on the same network
-- Check firewall settings if clients can't connect
-- The uploads folder will be created automatically
-- File paths use forward slashes for cross-platform compatibility
 
 ---
 
