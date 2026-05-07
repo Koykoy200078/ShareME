@@ -1,0 +1,14 @@
+@import "tailwindcss";
+@import "./shareme.css";
+
+/* ── Tailwind theme tokens ────────────────────────────────────────── */
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/*
+  Remove the globals.css body override completely.
+  shareme.css owns body background via CSS variables + data-theme.
+  globals.css must NOT re-declare body background or it fights shareme.css.
+*/

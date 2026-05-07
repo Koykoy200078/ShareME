@@ -1,0 +1,5 @@
+{
+  "name": "shareme-screens",
+  "private": true,
+  "description": "Boundary marker — prevents Node.js module resolution from walking up to the repo root when resolving sharemeweb dependencies."
+}

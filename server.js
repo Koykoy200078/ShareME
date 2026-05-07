@@ -87,11 +87,24 @@ const upload = multer({
 	},
 });
 
+// ============================================
+// CORS — allow the Next.js frontend (:3000) to POST directly to :3007
+// for multipart uploads (Next.js proxy buffers multipart which breaks multer)
+// ============================================
+app.use((req, res, next) => {
+	const origin = req.headers.origin || '';
+	// Allow same LAN origin (any port on the same hostname)
+	res.setHeader('Access-Control-Allow-Origin', origin || '*');
+	res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+	res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+	if (req.method === 'OPTIONS') return res.sendStatus(204);
+	next();
+});
+
 // Enable gzip compression for faster responses
 app.use(compression());
 
-// Serve static files (HTML, CSS, JS)
-app.use(express.static('public'));
+// Parse request bodies for API routes
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50gb', extended: true }));
 

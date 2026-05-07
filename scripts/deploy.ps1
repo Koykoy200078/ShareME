@@ -32,8 +32,9 @@ $itemsToDeploy = @(
     "server.js",
     "package.json",
     "package-lock.json",
-    "public",
-    "scripts"
+    ".env",
+    "scripts",
+    "screens"
 )
 
 # Optional: backup existing deployment
@@ -50,12 +51,24 @@ foreach ($item in $itemsToDeploy) {
             if (Test-Path $sourcePath -PathType Container) {
                 # It's a directory
                 if (Test-Path $destPath) {
+                    Write-Host "  [DELETE] Removing old $item..." -ForegroundColor Yellow
                     Remove-Item -Path $destPath -Recurse -Force
                 }
-                Copy-Item -Path $sourcePath -Destination $destPath -Recurse -Force
+                
+                if ($item -eq "screens") {
+                    # Use robocopy to avoid copying node_modules and .next over the network (saves massive time)
+                    Write-Host "  [COPY]   Syncing $item (excluding node_modules)..." -ForegroundColor Cyan
+                    $roboArgs = @($sourcePath, $destPath, "/E", "/XD", "node_modules", ".next", ".turbopack", "/NFL", "/NDL", "/NJH", "/NJS", "/nc", "/ns", "/np")
+                    & robocopy $roboArgs | Out-Null
+                } else {
+                    Copy-Item -Path $sourcePath -Destination $destPath -Recurse -Force
+                }
                 Write-Host "  [DIR]  $item" -ForegroundColor Green
             } else {
                 # It's a file
+                if (Test-Path $destPath) {
+                    Remove-Item -Path $destPath -Force
+                }
                 Copy-Item -Path $sourcePath -Destination $destPath -Force
                 Write-Host "  [FILE] $item" -ForegroundColor Green
             }
@@ -87,7 +100,9 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "`nNext steps on the server machine:"
 Write-Host "  1. cd `"$NetworkPath`""
 Write-Host "  2. npm install"
-Write-Host "  3. npm start"
+Write-Host "  3. cd screens\sharemeweb && npm install"
+Write-Host "  4. cd ..\.."
+Write-Host "  5. npm run dev:all"
 Write-Host "`nOr run the startup script for silent background mode:"
 Write-Host "  .\scripts\start-shareme.ps1"
 Write-Host "========================================`n" -ForegroundColor Cyan

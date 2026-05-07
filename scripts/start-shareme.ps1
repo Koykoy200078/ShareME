@@ -4,10 +4,10 @@ param (
 )
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$serverFile = Join-Path $projectRoot "server.js"
+$serverFile = Join-Path $projectRoot "scripts\dev-all.js"
 
 if (-not (Test-Path $serverFile)) {
-    throw "Cannot find server.js at $serverFile. Update the script path if the file was moved."
+    throw "Cannot find dev-all.js at $serverFile."
 }
 
 if (-not (Test-Path $LogDirectory)) {
@@ -19,7 +19,7 @@ $errorLogFile = Join-Path $LogDirectory "shareme-server-error.log"
 $env:NODE_OPTIONS = "--max-old-space-size=8192 --max-http-header-size=80000"
 
 Start-Process -FilePath $NodeExecutable `
-    -ArgumentList $serverFile `
+    -ArgumentList "`"$serverFile`"" `
     -WorkingDirectory $projectRoot `
     -WindowStyle Hidden `
     -RedirectStandardOutput $logFile `
