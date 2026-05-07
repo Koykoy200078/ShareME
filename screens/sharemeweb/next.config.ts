@@ -42,11 +42,11 @@ function getAllowedDevOrigins() {
 }
 
 const nextConfig: NextConfig = {
+  // Explicitly anchor Turbopack to this Next.js app directory.
+  // Without this, Turbopack detects multiple package-lock.json files and
+  // incorrectly uses the repo root (C:\Projects\ShareME) as the workspace
+  // root, causing compilation loops and screen freezes.
   turbopack: {
-    // Explicitly anchor Turbopack to this Next.js app directory.
-    // Without this, Turbopack detects multiple package-lock.json files and
-    // incorrectly uses the repo root (C:\Projects\ShareME) as the workspace
-    // root, causing tailwindcss and other sharemeweb deps to not resolve.
     root: __dirname,
   },
   // Expose the backend port to browser-side code.

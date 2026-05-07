@@ -46,6 +46,7 @@ Create a `.env` file in the root directory (or use the existing one):
 ```env
 PORT=3007
 FRONTEND_PORT=3000
+EVENTSCORER_PORT=3001
 ```
 
 4. Start the Application:
@@ -75,9 +76,11 @@ ShareME/
 ├── server.js           # Express backend server with upload/print handling
 ├── scripts/            # Deployment and auto-startup PowerShell scripts
 ├── screens/
-│   └── sharemeweb/     # Modern Next.js 16 frontend app
-│       ├── app/        # UI routes, components, contexts, and hooks
-│       └── public/     # Static assets
+│   ├── sharemeweb/     # ShareME Next.js frontend (Port 3000)
+│   │   ├── app/        
+│   │   └── public/     
+│   └── eventscorer/    # EventScorer Next.js frontend (Port 3001)
+│       └── app/
 ├── uploads/            # Uploaded files storage (auto-created)
 ├── package.json        # Dependencies
 ├── .env                # Port configurations

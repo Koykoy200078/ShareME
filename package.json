@@ -2,6 +2,9 @@
 	"name": "shareme",
 	"version": "1.0.0",
 	"description": "Local network file sharing application with folder upload support",
+	"workspaces": [
+		"screens/*"
+	],
 	"main": "server.js",
 	"scripts": {
 		"start": "node --max-old-space-size=8192 --max-http-header-size=80000 server.js",

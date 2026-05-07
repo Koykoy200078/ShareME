@@ -25,11 +25,15 @@ cd C:\Project\ShareME    # (Change this if your path on the server is different)
 # 2. Install backend dependencies
 npm install
 
-# 3. Install frontend (Next.js) dependencies
+# 3. Install frontend (Next.js) dependencies for ShareME
 cd screens\sharemeweb
 npm install
 
-# 4. Go back to the root folder
+# 4. Install frontend (Next.js) dependencies for EventScorer
+cd ..\eventscorer
+npm install
+
+# 5. Go back to the root folder
 cd ..\..
 ```
 

@@ -608,20 +608,78 @@ server.headersTimeout = 18000000; // 5 hours
 server.requestTimeout = 18000000; // 5 hours
 server.timeout = 18000000; // 5 hours
 
-// WebSocket Server for real-time updates
-const wss = new WebSocketServer({ server });
+// ============================================
+// WEBSOCKETS (ShareME & Eventscorer)
+// ============================================
 
-// Heartbeat interval (30 seconds)
+// ShareME WebSocket Server
+const wss = new WebSocketServer({ noServer: true });
+
+// Eventscorer WebSocket Server
+const eventscorerWss = new WebSocketServer({ noServer: true });
+const eventscorerClientsByEventId = new Map();
+
+// --- Eventscorer Logic ---
+function addEventscorerClient(eventId, socket) {
+	const clients = eventscorerClientsByEventId.get(eventId) ?? new Set();
+	clients.add(socket);
+	eventscorerClientsByEventId.set(eventId, clients);
+}
+
+function removeEventscorerClient(eventId, socket) {
+	const clients = eventscorerClientsByEventId.get(eventId);
+	if (!clients) return;
+	clients.delete(socket);
+	if (clients.size === 0) eventscorerClientsByEventId.delete(eventId);
+}
+
+function broadcastScoreUpdate(payload) {
+	if (!payload || typeof payload.eventId !== 'string') return;
+	const clients = eventscorerClientsByEventId.get(payload.eventId);
+	if (!clients || clients.size === 0) return;
+
+	const encodedPayload = JSON.stringify({ type: 'score:update', data: payload });
+	for (const client of clients) {
+		if (client.readyState === 1) client.send(encodedPayload); // WebSocket.OPEN
+	}
+}
+
+// REST endpoint for eventscorer Next.js app to trigger broadcasts
+app.post('/api/eventscorer/broadcast', express.json(), (req, res) => {
+	broadcastScoreUpdate(req.body);
+	res.status(200).json({ success: true });
+});
+
+eventscorerWss.on('connection', (ws, req) => {
+	// Parse eventId from the URL
+	const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+	const eventId = (url.searchParams.get('eventId') || '').trim();
+
+	if (!eventId) {
+		ws.close();
+		return;
+	}
+
+	addEventscorerClient(eventId, ws);
+
+	ws.send(JSON.stringify({
+		type: 'connection',
+		data: { eventId, connectedAt: new Date().toISOString() },
+	}));
+
+	ws.on('close', () => removeEventscorerClient(eventId, ws));
+	ws.on('error', () => removeEventscorerClient(eventId, ws));
+});
+
+// --- ShareME Logic ---
 const HEARTBEAT_INTERVAL = 30000;
 
 wss.on('connection', (ws, req) => {
 	const clientIP = req.socket.remoteAddress;
 	console.log(`WebSocket client connected: ${clientIP}`);
 
-	// Store client with metadata
 	wsClients.set(ws, { isAlive: true, clientIP });
 
-	// Send initial connection confirmation
 	ws.send(
 		JSON.stringify({
 			type: 'connected',
@@ -630,7 +688,6 @@ wss.on('connection', (ws, req) => {
 		}),
 	);
 
-	// Handle pong responses (heartbeat)
 	ws.on('pong', () => {
 		const clientData = wsClients.get(ws);
 		if (clientData) clientData.isAlive = true;
@@ -645,6 +702,23 @@ wss.on('connection', (ws, req) => {
 		console.error('WebSocket error:', error);
 		wsClients.delete(ws);
 	});
+});
+
+// Manually handle HTTP upgrades to route to the correct WebSocket Server
+server.on('upgrade', (request, socket, head) => {
+	const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
+	
+	if (url.pathname === '/ws') {
+		wss.handleUpgrade(request, socket, head, (ws) => {
+			wss.emit('connection', ws, request);
+		});
+	} else if (url.pathname === '/ws/admin-scores') {
+		eventscorerWss.handleUpgrade(request, socket, head, (ws) => {
+			eventscorerWss.emit('connection', ws, request);
+		});
+	} else {
+		socket.destroy();
+	}
 });
 
 // Heartbeat - ping all clients every 30 seconds to detect dead connections

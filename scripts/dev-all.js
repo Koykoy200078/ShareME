@@ -31,14 +31,17 @@ loadRootEnv();
 // ─── Resolve ports from env (after loading .env) ─────────────────────────────
 const BACKEND_PORT  = parseInt(process.env.PORT           || '3007', 10);
 const FRONTEND_PORT = parseInt(process.env.FRONTEND_PORT  || '3000', 10);
+const EVENTSCORER_PORT = parseInt(process.env.EVENTSCORER_PORT || '3001', 10);
 const BACKEND_ORIGIN = `http://127.0.0.1:${BACKEND_PORT}`;
 
-console.log(`[dev:all] Backend  → :${BACKEND_PORT}`);
-console.log(`[dev:all] Frontend → :${FRONTEND_PORT}`);
+console.log(`[dev:all] Backend     → :${BACKEND_PORT}`);
+console.log(`[dev:all] Frontend    → :${FRONTEND_PORT}`);
+console.log(`[dev:all] Eventscorer → :${EVENTSCORER_PORT}`);
 
 let shuttingDown = false;
 let backend = null;
 let frontend = null;
+let eventscorer = null;
 
 function buildSpawnEnv(envOverrides = {}) {
 	const env = {};
@@ -94,6 +97,7 @@ function isPortAvailable(port) {
 async function ensurePortsAreAvailable() {
 	const checks = [
 		{ name: 'frontend', port: FRONTEND_PORT },
+		{ name: 'eventscorer', port: EVENTSCORER_PORT },
 		{ name: 'backend',  port: BACKEND_PORT  },
 	];
 
@@ -123,13 +127,19 @@ async function main() {
 		PORT: String(BACKEND_PORT),
 	});
 
-	frontend = startProcess('frontend', npmCommand, ['run', 'dev'], webDir, {
+	frontend = startProcess('frontend', npmCommand, ['run', 'dev', '--', '-H', '0.0.0.0'], webDir, {
 		// Tells Next.js which origin to proxy API calls to
 		UNIFIED_API_ORIGIN: BACKEND_ORIGIN,
 		// Exposes the backend port to client-side code (NEXT_PUBLIC_ prefix)
 		NEXT_PUBLIC_BACKEND_PORT: String(BACKEND_PORT),
 		// Port Next.js listens on
 		PORT: String(FRONTEND_PORT),
+	});
+
+	const eventscorerDir = path.join(rootDir, 'screens', 'eventscorer');
+	eventscorer = startProcess('eventscorer', npmCommand, ['run', 'dev', '--', '-H', '0.0.0.0'], eventscorerDir, {
+		NEXT_PUBLIC_BACKEND_PORT: String(BACKEND_PORT),
+		PORT: String(EVENTSCORER_PORT),
 	});
 }
 
@@ -145,7 +155,7 @@ function killChildTree(child) {
 function shutdown() {
 	if (shuttingDown) return;
 	shuttingDown = true;
-	for (const child of [backend, frontend]) killChildTree(child);
+	for (const child of [backend, frontend, eventscorer]) killChildTree(child);
 	setTimeout(() => process.exit(0), 1200);
 }
 
