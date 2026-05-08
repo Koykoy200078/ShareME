@@ -2,7 +2,6 @@ const { spawn } = require('child_process')
 const net = require('net')
 const path = require('path')
 const fs = require('fs')
-const os = require('os')
 
 const rootDir = path.resolve(__dirname, '..')
 const webDir = path.join(rootDir, 'screens', 'sharemeweb')
@@ -31,6 +30,8 @@ loadRootEnv()
 
 const PROTOCOL = 'http'
 
+const os = require('os')
+
 function getLocalIPAddress() {
 	const interfaces = os.networkInterfaces()
 	for (const name of Object.keys(interfaces)) {
@@ -40,7 +41,7 @@ function getLocalIPAddress() {
 			}
 		}
 	}
-	return 'localhost'
+	return '127.0.0.1'
 }
 
 function isLocalIPv4Address(address) {
@@ -56,22 +57,23 @@ function isLocalIPv4Address(address) {
 	return false
 }
 
+const STATIC_SERVER_IP = (process.env.SERVER_IP || '').trim()
+const BACKEND_HOST = isLocalIPv4Address(STATIC_SERVER_IP) ? STATIC_SERVER_IP : getLocalIPAddress()
+
 // ─── Resolve ports from env (after loading .env) ─────────────────────────────
 const BACKEND_PORT = parseInt(process.env.PORT || '3007', 10)
 const FRONTEND_PORT = parseInt(process.env.FRONTEND_PORT || '3000', 10)
 const EVENTSCORER_PORT = parseInt(process.env.EVENTSCORER_PORT || '3001', 10)
-const STATIC_SERVER_IP = (process.env.SERVER_IP || '').trim()
-const BACKEND_HOST = isLocalIPv4Address(STATIC_SERVER_IP) ? STATIC_SERVER_IP : getLocalIPAddress()
 const BACKEND_ORIGIN = `${PROTOCOL}://${BACKEND_HOST}:${BACKEND_PORT}`
 const NEXT_PROXY_API_PORT = BACKEND_PORT
 const NEXT_PROXY_API_ORIGIN = `http://127.0.0.1:${NEXT_PROXY_API_PORT}`
 
-console.log(`[dev:all] Mode        → ${PROTOCOL.toUpperCase()}`)
-console.log(`[dev:all] Backend Host → ${BACKEND_HOST}`)
-console.log(`[dev:all] Backend     → :${BACKEND_PORT}`)
-console.log(`[dev:all] Proxy API   → ${NEXT_PROXY_API_ORIGIN}`)
-console.log(`[dev:all] Frontend    → :${FRONTEND_PORT}`)
-console.log(`[dev:all] Eventscorer → :${EVENTSCORER_PORT}`)
+console.log(`[prod:all] Mode        → ${PROTOCOL.toUpperCase()}`)
+console.log(`[prod:all] Backend Host → ${BACKEND_HOST}`)
+console.log(`[prod:all] Backend     → :${BACKEND_PORT}`)
+console.log(`[prod:all] Proxy API   → ${NEXT_PROXY_API_ORIGIN}`)
+console.log(`[prod:all] Frontend    → :${FRONTEND_PORT}`)
+console.log(`[prod:all] Eventscorer → :${EVENTSCORER_PORT}`)
 
 let shuttingDown = false
 let backend = null
@@ -138,7 +140,7 @@ async function ensurePortsAreAvailable() {
 		const available = await isPortAvailable(check.port)
 		if (!available) {
 			hasBusyPort = true
-			console.error(`[dev:all] Port ${check.port} (${check.name}) is already in use. Stop existing dev servers first, then run npm run dev:all again.`)
+			console.error(`[prod:all] Port ${check.port} (${check.name}) is already in use. Stop existing services first, then run npm run prod:all again.`)
 		}
 	}
 	return !hasBusyPort
@@ -151,33 +153,32 @@ async function main() {
 		return
 	}
 
-	backend = startProcess('backend', npmCommand, ['run', 'dev'], rootDir, {
+	backend = startProcess('backend', npmCommand, ['start'], rootDir, {
 		// PORT is already in process.env (loaded from .env above),
-		// but we pass it explicitly so nodemon child also gets it.
+		// but we pass it explicitly so child also gets it.
 		PORT: String(BACKEND_PORT),
 		FORCE_HTTP_ONLY: '1',
 	})
 
-	const nextCommand = npmCommand
-	const nextArgs = ['run', 'dev', '--', '-H', '0.0.0.0']
+	const frontendArgs = ['npm', 'start', '--', '-H', '0.0.0.0']
 
-	frontend = startProcess('frontend', nextCommand, nextArgs, webDir, {
+	frontend = startProcess('frontend', frontendArgs[0], frontendArgs.slice(1), webDir, {
 		UNIFIED_API_ORIGIN: BACKEND_ORIGIN,
 		NEXT_PROXY_API_ORIGIN,
 		NEXT_PUBLIC_BACKEND_PORT: String(BACKEND_PORT),
 		NEXT_PUBLIC_BACKEND_HTTP_PORT: String(NEXT_PROXY_API_PORT),
 		PORT: String(FRONTEND_PORT),
-		NODE_ENV: 'development',
+		NODE_ENV: 'production',
 	})
 
 	const eventscorerDir = path.join(rootDir, 'screens', 'eventscorer')
-	eventscorer = startProcess('eventscorer', nextCommand, nextArgs, eventscorerDir, {
+	eventscorer = startProcess('eventscorer', frontendArgs[0], frontendArgs.slice(1), eventscorerDir, {
 		UNIFIED_API_ORIGIN: BACKEND_ORIGIN,
 		NEXT_PROXY_API_ORIGIN,
 		NEXT_PUBLIC_BACKEND_PORT: String(BACKEND_PORT),
 		NEXT_PUBLIC_BACKEND_HTTP_PORT: String(NEXT_PROXY_API_PORT),
 		PORT: String(EVENTSCORER_PORT),
-		NODE_ENV: 'development',
+		NODE_ENV: 'production',
 	})
 }
 
@@ -201,6 +202,6 @@ process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
 
 main().catch((error) => {
-	console.error('[dev:all] startup failed:', error.message)
+	console.error('[prod:all] startup failed:', error.message)
 	process.exit(1)
 })

@@ -1,82 +1,83 @@
-# ShareME Server Setup & Deployment Guide
+# 🚀 ShareME Server Setup & Deployment Guide
 
-This guide covers everything from deploying the code from your development PC to getting it running silently in the background on a fresh Windows server.
-
-## Step 1: Deploy from your Personal PC
-First, open PowerShell on your **personal PC** (where you write the code) and run the deploy script. This will delete the old files on the network share and copy the fresh ones over. The script uses Robocopy to skip copying the heavy `node_modules` folders to save time.
-
-```powershell
-# Run this on your PERSONAL PC
-cd C:\Projects\ShareME
-.\scripts\deploy.ps1
-```
+This guide explains how to deploy and manage the ShareME ecosystem (Backend + Next.js Web + EventScorer) across local development and production network environments.
 
 ---
 
-## Step 2: Install Dependencies on the Fresh Server
-Go to your **Server PC**. Since it's a fresh server or a fresh deployment, you need to install the Node.js packages for both the backend and the Next.js frontend. 
+## 🛠️ Modes of Operation
 
-Open PowerShell on the **Server PC** and run:
+### 1. Development Mode (Local PC)
+Best for testing changes. Uses **hot-reloading** (Nodemon and Next.js Dev Server).
+*   **Command:** `npm run dev:all`
+*   **Behavior:** Restarts automatically when you save code. Binds to `0.0.0.0` so other devices on your LAN can access it.
 
-```powershell
-# 1. Navigate to the project folder on the server
-cd C:\Project\ShareME    # (Change this if your path on the server is different)
-
-# 2. Install backend dependencies
-npm install
-
-# 3. Install frontend (Next.js) dependencies for ShareME
-cd screens\sharemeweb
-npm install
-
-# 4. Install frontend (Next.js) dependencies for EventScorer
-cd ..\eventscorer
-npm install
-
-# 5. Go back to the root folder
-cd ..\..
-```
+### 2. Production Mode (Server Machine)
+Best for reliability and performance. Uses **compiled artifacts** (Next.js Build).
+*   **Command:** `npm run prod:all`
+*   **Behavior:** Runs optimized versions of the frontend. Built artifacts are synced via the deployment script.
 
 ---
 
-## Step 3: Test it Manually (Optional but Recommended)
-Before setting it up to run silently in the background, it's best to test it manually to ensure there are no firewall or port issues.
+## 📦 Phase 1: Local PC to Production Network
+Run these steps on your **Personal PC** whenever you have new code ready for the server.
 
-```powershell
-# Run this in the root folder (C:\Project\ShareME) on the Server PC
-npm run dev:all
-```
-
-*Wait for it to say `ShareME Server is running!` and `Ready in XXXms`. Go to `http://localhost:3000` on the server to verify it works. Once verified, press **Ctrl+C** to stop it.*
-
----
-
-## Step 4: Register the Auto-Startup Task
-To make the server start completely hidden in the background every time the Server PC boots up or you log in, run the registration script.
-
-Open PowerShell **as Administrator** on the Server PC and run:
-
-```powershell
-# Run this in the root folder
-.\scripts\register-shareme-startup.ps1
-```
-*Output should say: `Scheduled task 'ShareME Server' registered...`*
-
-### To start it immediately without restarting the PC:
-You can manually trigger the background script for the first time by running:
-
-```powershell
-.\scripts\start-shareme.ps1
-```
-It will immediately return you to the prompt, but the server is now running hidden in the background!
+1.  Open PowerShell in the project root.
+2.  Run the deployment script:
+    ```powershell
+    .\scripts\deploy.ps1
+    ```
+    *This script automatically builds the optimized production bundles for both frontends and syncs them to `\\192.168.2.25\Project\ShareME`.*
 
 ---
 
-## 💡 Troubleshooting & Logs
-Because the server runs completely hidden, you won't see console errors. If the site ever goes down, you can check the logs the startup script generates.
+## 🖥️ Phase 2: Production Server Setup
+Perform these steps once on the **Server Machine** (at `192.168.2.25`).
 
-Open these files in Notepad on the server:
-* **Standard Logs:** `C:\Project\ShareME\scripts\logs\shareme-server.log`
-* **Error Logs:** `C:\Project\ShareME\scripts\logs\shareme-server-error.log`
+1.  **Navigate to the project folder:**
+    ```powershell
+    cd "\\192.168.2.25\Project\ShareME"
+    ```
+2.  **Install Production Dependencies:**
+    ```powershell
+    npm install --production
+    ```
+3.  **Start the Production Environment:**
+    *   **Foreground (Console):** `npm run prod:all`
+    *   **Background (Hidden):** `.\scripts\start-shareme-prod.ps1`
 
-*(If you ever need to kill the hidden server manually, open Task Manager on the server, go to the "Details" tab, and "End Task" on all `node.exe` processes).*
+---
+
+## 🔄 Phase 3: Auto-Startup & Maintenance
+
+### Setting up Auto-Startup
+To ensure the server starts automatically every time the machine boots or a user logs in:
+
+1.  Open PowerShell **as Administrator** on the server.
+2.  Run the registration script:
+    ```powershell
+    .\scripts\register-shareme-prod-startup.ps1
+    ```
+    *This creates a Windows Task Scheduler task named "ShareME Server".*
+
+### Rescheduling / Updating Startup
+If you move the project to a different folder or if you want to update the startup parameters:
+*   Simply re-run the `.\scripts\register-shareme-prod-startup.ps1` script. It uses the `-Force` flag to automatically update the existing task with your new configuration.
+
+---
+
+## 💡 Troubleshooting & Maintenance
+
+### Killing the Server
+If you need to stop the hidden background server manually:
+1.  Open **Task Manager** on the server.
+2.  Go to the **Details** tab.
+3.  Right-click and "End Task" on all `node.exe` processes.
+
+### Viewing Logs
+Since the server runs hidden, check these log files for errors or connection history:
+*   `C:\Project\ShareME\scripts\logs\shareme-server.log`
+*   `C:\Project\ShareME\scripts\logs\shareme-server-error.log`
+
+---
+
+*Note: Always ensure that port `3000`, `3001`, and `3007` are allowed through the Windows Firewall on the Server PC.*
