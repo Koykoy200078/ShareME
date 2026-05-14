@@ -10,7 +10,8 @@
 		"start": "node --max-old-space-size=8192 --max-http-header-size=80000 server.js",
 		"dev": "nodemon --watch server.js --watch config.json --watch .env --ext js,json --ignore screens/** --ignore uploads/** --ignore node_modules/** --exec \"node --max-old-space-size=8192 --max-http-header-size=80000 server.js\"",
 		"dev:all": "node scripts/dev-all.js",
-		"prod:all": "node scripts/prod-all.js"
+		"prod:all": "node scripts/prod-all.js",
+		"push:all": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\push-all-repos.ps1"
 	},
 	"keywords": [
 		"file-sharing",

@@ -1,172 +1,164 @@
 param (
     [string]$NetworkPath = "\\192.168.2.25\Project\ShareME",
-    [string]$TaskName = "ShareME Server",
-    [string]$TaskUser = "$env:UserDomain\$env:UserName",
-    [switch]$SkipAutoStartupTask,
-    [switch]$SkipProcessStop,
     [switch]$TransferOnly
 )
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$projectRootFull = (Resolve-Path -LiteralPath $projectRoot).Path.TrimEnd('\\')
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
-function Get-NetworkHost([string]$Path) {
-    if ($Path -match '^\\\\([^\\]+)\\') {
-        return $matches[1]
-    }
-    return $null
-}
-
-function Invoke-Robocopy([string[]]$RobocopyArgs) {
-    & robocopy @RobocopyArgs | Out-Null
-    # Robocopy uses non-zero success codes. 0-7 are success/warnings.
-    return $LASTEXITCODE -le 7
-}
-
-function Unschedule-AutoStartupTask([string]$ServerName, [string]$Name) {
-    if (-not $ServerName) {
-        Write-Host "[TASK] Could not detect target server from network path. Skipping unschedule step." -ForegroundColor Yellow
-        return
-    }
-
-    Write-Host "[TASK] Unscheduling '$Name' on $ServerName..." -ForegroundColor Yellow
-    $null = & schtasks /Delete /S $ServerName /TN $Name /F 2>&1
-
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[TASK] Existing startup task removed." -ForegroundColor Green
-    } else {
-        Write-Host "[TASK] No existing task removed (it may not exist yet)." -ForegroundColor DarkGray
-    }
-}
-
-function Is-LocalServerTarget([string]$ServerName) {
-    if (-not $ServerName) { return $true }
-
-    $normalized = $ServerName.ToLowerInvariant()
-    if ($normalized -eq 'localhost' -or $normalized -eq '.' -or $normalized -eq $env:COMPUTERNAME.ToLowerInvariant()) {
-        return $true
-    }
-
+function Test-IsAdministrator {
     try {
-        $localIPs = [System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) |
-            Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } |
-            ForEach-Object { $_.IPAddressToString }
-
-        return $localIPs -contains $ServerName
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     } catch {
         return $false
     }
 }
 
-function Stop-RunningShareMEProcesses([string]$ServerName, [string]$Name) {
-    if (-not $ServerName) {
-        Write-Host "[TASK] Could not detect target server from network path. Skipping process stop step." -ForegroundColor Yellow
-        return $false
+function Start-ElevatedDeploy([string]$ScriptPath, [string]$TargetNetworkPath, [bool]$UseTransferOnly) {
+    $argumentList = @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "`"$ScriptPath`"",
+        "-NetworkPath",
+        "`"$TargetNetworkPath`""
+    )
+
+    if ($UseTransferOnly) {
+        $argumentList += "-TransferOnly"
     }
 
-    Write-Host "[TASK] Stopping running ShareME processes on $ServerName..." -ForegroundColor Yellow
-    $isLocalTarget = Is-LocalServerTarget $ServerName
-    $cimSession = $null
-    $canVerifyStop = $true
-
-    # If the scheduled task is currently running, request stop first.
-    if ($isLocalTarget) {
-        $null = & schtasks /End /TN $Name 2>&1
-    } else {
-        $null = & schtasks /End /S $ServerName /TN $Name 2>&1
-    }
-
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[TASK] Stop signal sent to scheduled task '$Name'." -ForegroundColor Green
-    } else {
-        Write-Host "[TASK] Scheduled task '$Name' was not running." -ForegroundColor DarkGray
-    }
-
-    $stoppedCount = 0
-
-    try {
-        if ($isLocalTarget) {
-            $sharemeProcesses = Get-CimInstance -ClassName Win32_Process -Filter "Name = 'node.exe'" -ErrorAction Stop |
-                Where-Object { ($_.CommandLine -as [string]) -like '*ShareME*' }
-        } else {
-            $sessionOptions = New-CimSessionOption -Protocol Dcom
-            $cimSession = New-CimSession -ComputerName $ServerName -SessionOption $sessionOptions -ErrorAction Stop
-            $sharemeProcesses = Get-CimInstance -CimSession $cimSession -ClassName Win32_Process -Filter "Name = 'node.exe'" -ErrorAction Stop |
-                Where-Object { ($_.CommandLine -as [string]) -like '*ShareME*' }
-        }
-
-        foreach ($proc in ($sharemeProcesses | Sort-Object ProcessId -Unique)) {
-            try {
-                if ($isLocalTarget) {
-                    Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
-                } else {
-                    Invoke-CimMethod -InputObject $proc -MethodName Terminate -ErrorAction Stop | Out-Null
-                }
-                $stoppedCount++
-            } catch {
-                Write-Host "[TASK] Failed to stop PID $($proc.ProcessId): $($_.Exception.Message)" -ForegroundColor Yellow
-            }
-        }
-    } catch {
-        if ($isLocalTarget) {
-            Write-Host "[TASK] Could not query local node processes: $($_.Exception.Message)" -ForegroundColor Yellow
-        } else {
-            Write-Host "[TASK] Could not query remote node processes: $($_.Exception.Message)" -ForegroundColor Yellow
-            Write-Host "[TASK] Tip: run deploy directly on the server PC for guaranteed pre-stop behavior." -ForegroundColor Yellow
-        }
-        $canVerifyStop = $false
-    } finally {
-        if ($cimSession) {
-            Remove-CimSession $cimSession
-        }
-    }
-
-    if ($stoppedCount -gt 0) {
-        Write-Host "[TASK] Stopped $stoppedCount running ShareME node process(es)." -ForegroundColor Green
-    } else {
-        Write-Host "[TASK] No running ShareME node process found to stop." -ForegroundColor DarkGray
-    }
-
-    if (-not $canVerifyStop) {
-        return $false
-    }
-
-    return $true
+    Start-Process -FilePath "powershell.exe" -ArgumentList $argumentList -Verb RunAs | Out-Null
 }
 
-function Schedule-AutoStartupTask([string]$ServerName, [string]$Name, [string]$UserName, [string]$StartScriptPath) {
-    if (-not $ServerName) {
-        Write-Host "[TASK] Could not detect target server from network path. Skipping schedule step." -ForegroundColor Yellow
+function Copy-FileIfChanged([string]$SourcePath, [string]$DestinationPath) {
+    if (-not (Test-Path -LiteralPath $SourcePath)) {
         return $false
     }
 
-    $taskCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$StartScriptPath`""
-    Write-Host "[TASK] Scheduling '$Name' on $ServerName for user '$UserName'..." -ForegroundColor Yellow
+    $destinationDir = Split-Path -Path $DestinationPath -Parent
+    if (-not (Test-Path -LiteralPath $destinationDir)) {
+        New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
+    }
 
-    $null = & schtasks /Create /S $ServerName /TN $Name /TR $taskCommand /SC ONLOGON /RU $UserName /RL HIGHEST /F 2>&1
+    $copyRequired = $true
+    if (Test-Path -LiteralPath $DestinationPath) {
+        $sourceItem = Get-Item -LiteralPath $SourcePath
+        $destinationItem = Get-Item -LiteralPath $DestinationPath
+        $copyRequired = ($sourceItem.Length -ne $destinationItem.Length) -or ($sourceItem.LastWriteTimeUtc -ne $destinationItem.LastWriteTimeUtc)
+    }
 
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[TASK] Startup task registered successfully." -ForegroundColor Green
+    if ($copyRequired) {
+        Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
         return $true
     }
 
-    if ($UserName -ne "SYSTEM") {
-        Write-Host "[TASK] User-based registration failed. Retrying with SYSTEM account..." -ForegroundColor Yellow
-        $null = & schtasks /Create /S $ServerName /TN $Name /TR $taskCommand /SC ONLOGON /RU SYSTEM /RL HIGHEST /F 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "[TASK] Startup task registered successfully (SYSTEM)." -ForegroundColor Green
-            return $true
-        }
-    }
-
-    Write-Host "[TASK] Failed to register startup task automatically." -ForegroundColor Red
-    Write-Host "       Run this directly on the server to complete registration:" -ForegroundColor Yellow
-    Write-Host "       powershell -ExecutionPolicy Bypass -File `"$NetworkPath\scripts\register-shareme-prod-startup.ps1`" -TaskName `"$Name`" -UserId `"$UserName`"" -ForegroundColor Yellow
     return $false
 }
 
-$targetServer = Get-NetworkHost $NetworkPath
-$remoteStartScript = Join-Path $NetworkPath "scripts\start-shareme-prod.ps1"
+function Test-GitRepository([string]$RepositoryPath) {
+    try {
+        & git -C $RepositoryPath rev-parse --is-inside-work-tree *> $null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    }
+}
+
+function Get-GitChangedPaths([string]$RepositoryPath, [string]$PathPrefix = "") {
+    $results = New-Object System.Collections.Generic.List[string]
+
+    if (-not (Test-GitRepository -RepositoryPath $RepositoryPath)) {
+        return $results
+    }
+
+    $statusLines = & git -c core.quotepath=false -C $RepositoryPath status --porcelain 2>$null
+    foreach ($line in $statusLines) {
+        if ([string]::IsNullOrWhiteSpace($line) -or $line.Length -lt 4) {
+            continue
+        }
+
+        $relativePath = $line.Substring(3).Trim()
+        if ($relativePath -like "* -> *") {
+            $relativePath = ($relativePath -split " -> ")[-1].Trim()
+        }
+
+        if ([string]::IsNullOrWhiteSpace($relativePath)) {
+            continue
+        }
+
+        $normalized = ($relativePath -replace "\\", "/").TrimStart('/')
+        if ($PathPrefix.Length -gt 0) {
+            $normalized = "$PathPrefix/$normalized"
+        }
+
+        $results.Add($normalized)
+    }
+
+    return $results
+}
+
+function Test-ShouldSkipPath([string]$RelativePath) {
+    $path = ($RelativePath -replace "\\", "/").TrimStart('/').ToLowerInvariant()
+
+    if ($path -eq ".git" -or $path.StartsWith(".git/")) { return $true }
+    if ($path -eq "uploads" -or $path.StartsWith("uploads/")) { return $true }
+    if ($path -eq "scripts/logs" -or $path.StartsWith("scripts/logs/")) { return $true }
+    if ($path -eq "node_modules" -or $path.StartsWith("node_modules/")) { return $true }
+    if ($path.StartsWith("screens/eventscorer/node_modules/")) { return $true }
+    if ($path.StartsWith("screens/sharemeweb/node_modules/")) { return $true }
+    if ($path.StartsWith("screens/eventscorer/.turbopack/")) { return $true }
+    if ($path.StartsWith("screens/sharemeweb/.turbopack/")) { return $true }
+    if ($path.StartsWith("screens/eventscorer/data/")) { return $true }
+
+    return $false
+}
+
+function Expand-ToProjectFiles([string]$RelativePath) {
+    $results = New-Object System.Collections.Generic.List[string]
+    $sourcePath = Join-Path $projectRoot ($RelativePath -replace "/", "\\")
+
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
+        return $results
+    }
+
+    $files = Get-ChildItem -LiteralPath $sourcePath -File -Recurse -ErrorAction SilentlyContinue
+    foreach ($file in $files) {
+        if (-not $file.FullName.StartsWith($projectRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+
+        $relativeFilePath = $file.FullName.Substring($projectRootFull.Length).TrimStart('\\') -replace "\\", "/"
+        if (Test-ShouldSkipPath -RelativePath $relativeFilePath) {
+            continue
+        }
+
+        $results.Add($relativeFilePath)
+    }
+
+    return $results
+}
+
+if (-not (Test-IsAdministrator)) {
+    if (-not $PSCommandPath) {
+        Write-Host "ERROR: Could not resolve script path for elevation." -ForegroundColor Red
+        exit 1
+    }
+
+    Write-Host "[ADMIN] Relaunching deploy script as Administrator..." -ForegroundColor Yellow
+
+    try {
+        Start-ElevatedDeploy -ScriptPath $PSCommandPath -TargetNetworkPath $NetworkPath -UseTransferOnly $TransferOnly.IsPresent
+        exit 0
+    } catch {
+        Write-Host "ERROR: Elevation failed or was cancelled." -ForegroundColor Red
+        exit 1
+    }
+}
 
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "  ShareME Deployment Script" -ForegroundColor Cyan
@@ -174,26 +166,11 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Source:      $projectRoot"
 Write-Host "Destination: $NetworkPath"
 Write-Host "Timestamp:   $timestamp"
+Write-Host "Mode:        Git changed files + essential checks"
 Write-Host "========================================`n" -ForegroundColor Cyan
 
 if ($TransferOnly) {
-    $SkipAutoStartupTask = $true
-    $SkipProcessStop = $true
-    Write-Host "[MODE] TransferOnly enabled: skip task/process operations, transfer data only." -ForegroundColor Yellow
-}
-
-if (-not $SkipAutoStartupTask) {
-    Unschedule-AutoStartupTask -ServerName $targetServer -Name $TaskName
-}
-
-if (-not $SkipProcessStop) {
-    if (-not (Stop-RunningShareMEProcesses -ServerName $targetServer -Name $TaskName)) {
-        Write-Host "ERROR: Could not stop/verify running ShareME processes before deployment." -ForegroundColor Red
-        Write-Host "Run deploy on the server PC (192.168.2.25) with sufficient permissions, then retry." -ForegroundColor Red
-        exit 1
-    }
-} else {
-    Write-Host "[TASK] Skipping process stop step (transfer-only mode)." -ForegroundColor DarkGray
+    Write-Host "[MODE] TransferOnly is now the default behavior." -ForegroundColor DarkGray
 }
 
 # Check if network path is accessible
@@ -209,66 +186,100 @@ if (-not (Test-Path $NetworkPath)) {
     }
 }
 
-# Files and folders to deploy (exclude node_modules, uploads, logs, .git)
-$itemsToDeploy = @(
-    "server.js",
-    "config.json",
-    "package.json",
-    "package-lock.json",
-    ".env",
-    "scripts",
-    "screens"
+Write-Host "Discovering changed files from git..." -ForegroundColor Yellow
+
+$changedPathSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+$fileSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+$nestedRepoRoots = @("screens/eventscorer", "screens/sharemeweb")
+$repoSources = @(
+    @{ Name = "root"; Path = $projectRoot; Prefix = "" },
+    @{ Name = "eventscorer"; Path = (Join-Path $projectRoot "screens\eventscorer"); Prefix = "screens/eventscorer" },
+    @{ Name = "sharemeweb"; Path = (Join-Path $projectRoot "screens\sharemeweb"); Prefix = "screens/sharemeweb" }
 )
 
-Write-Host "Building ShareME Web..." -ForegroundColor Yellow
-Set-Location -Path "$projectRoot\screens\sharemeweb"
-npm run build
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: ShareME Web build failed. Deployment aborted." -ForegroundColor Red
-    exit 1
+foreach ($repo in $repoSources) {
+    if (-not (Test-Path -LiteralPath $repo.Path)) {
+        continue
+    }
+
+    $repoChangedPaths = Get-GitChangedPaths -RepositoryPath $repo.Path -PathPrefix $repo.Prefix
+    if ($repoChangedPaths.Count -gt 0) {
+        Write-Host "  [GIT] $($repo.Name): $($repoChangedPaths.Count) changed path(s)"
+    }
+
+    foreach ($changedPath in $repoChangedPaths) {
+        $normalized = ($changedPath -replace "\\", "/").TrimStart('/')
+
+        # When root repo tracks nested git repos as a single path, do not expand recursively.
+        if ($repo.Prefix -eq "" -and $nestedRepoRoots -contains $normalized) {
+            continue
+        }
+
+        [void]$changedPathSet.Add($normalized)
+    }
 }
 
-Write-Host "Building EventScorer..." -ForegroundColor Yellow
-Set-Location -Path "$projectRoot\screens\eventscorer"
-npm run build
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: EventScorer build failed. Deployment aborted." -ForegroundColor Red
-    exit 1
+# Always check these key files (fast stat/hash check only), even if git-ignored.
+$essentialPaths = @("server.js", "config.json", "package.json", "package-lock.json", ".env")
+foreach ($essentialPath in $essentialPaths) {
+    [void]$changedPathSet.Add($essentialPath)
 }
 
-Set-Location -Path $projectRoot
+$excludedCount = 0
+$missingSourceCount = 0
+$expandedDirectoryCount = 0
 
-Write-Host "Deploying files..." -ForegroundColor Yellow
+foreach ($candidatePath in $changedPathSet) {
+    $normalized = ($candidatePath -replace "\\", "/").TrimStart('/')
+    if (Test-ShouldSkipPath -RelativePath $normalized) {
+        $excludedCount += 1
+        continue
+    }
 
-foreach ($item in $itemsToDeploy) {
-    $sourcePath = Join-Path $projectRoot $item
-    $destPath = Join-Path $NetworkPath $item
+    $sourcePath = Join-Path $projectRoot ($normalized -replace "/", "\\")
+    if (-not (Test-Path -LiteralPath $sourcePath)) {
+        $missingSourceCount += 1
+        continue
+    }
 
-    if (Test-Path $sourcePath) {
+    if (Test-Path -LiteralPath $sourcePath -PathType Container) {
+        $expandedDirectoryCount += 1
+        $expandedFiles = Expand-ToProjectFiles -RelativePath $normalized
+        foreach ($expandedFile in $expandedFiles) {
+            [void]$fileSet.Add($expandedFile)
+        }
+        continue
+    }
+
+    [void]$fileSet.Add($normalized)
+}
+
+$copiedCount = 0
+$unchangedCount = 0
+$failedCount = 0
+$sortedFiles = @($fileSet | Sort-Object)
+
+if ($sortedFiles.Count -eq 0) {
+    Write-Host "No changed files detected to copy." -ForegroundColor DarkGray
+} else {
+    Write-Host "Copying $($sortedFiles.Count) file(s) to network..." -ForegroundColor Yellow
+
+    foreach ($relativeFile in $sortedFiles) {
+        $sourcePath = Join-Path $projectRoot ($relativeFile -replace "/", "\\")
+        $destPath = Join-Path $NetworkPath ($relativeFile -replace "/", "\\")
+
         try {
-            if (Test-Path $sourcePath -PathType Container) {
-                # It's a directory
-                $xdArgs = @()
-                if ($item -eq "screens") { $xdArgs = @("node_modules", ".turbopack", (Join-Path $sourcePath "eventscorer\data")) }
-                if ($item -eq "scripts") { $xdArgs = @("logs") }
-                
-                Write-Host "  [SYNC] $item..." -ForegroundColor Cyan
-                $roboArgs = @($sourcePath, $destPath, "/MIR", "/NFL", "/NDL", "/NJH", "/NJS", "/nc", "/ns", "/np")
-                if ($xdArgs.Count -gt 0) { $roboArgs += "/XD"; $roboArgs += $xdArgs }
-                if (-not (Invoke-Robocopy -RobocopyArgs $roboArgs)) {
-                    throw "Robocopy failed for $item (exit code $LASTEXITCODE)"
-                }
-                Write-Host "  [DIR]  $item" -ForegroundColor Green
+            $copied = Copy-FileIfChanged -SourcePath $sourcePath -DestinationPath $destPath
+            if ($copied) {
+                $copiedCount += 1
+                Write-Host "  [FILE] $relativeFile" -ForegroundColor Green
             } else {
-                # It's a file
-                Copy-Item -Path $sourcePath -Destination $destPath -Force
-                Write-Host "  [FILE] $item" -ForegroundColor Green
+                $unchangedCount += 1
             }
         } catch {
-            Write-Host "  [FAIL] $item - $($_.Exception.Message)" -ForegroundColor Red
+            $failedCount += 1
+            Write-Host "  [FAIL] $relativeFile - $($_.Exception.Message)" -ForegroundColor Red
         }
-    } else {
-        Write-Host "  [SKIP] $item (not found)" -ForegroundColor DarkGray
     }
 }
 
@@ -286,17 +297,29 @@ if (-not (Test-Path $logsDir)) {
     Write-Host "  [DIR]  scripts\logs (created empty)" -ForegroundColor Green
 }
 
-if (-not $SkipAutoStartupTask) {
-    Schedule-AutoStartupTask -ServerName $targetServer -Name $TaskName -UserName $TaskUser -StartScriptPath $remoteStartScript | Out-Null
-}
-
 Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host "  Deployment Complete!" -ForegroundColor Green
+if ($failedCount -gt 0) {
+    Write-Host "  Deployment Complete (with errors)" -ForegroundColor Yellow
+} else {
+    Write-Host "  Deployment Complete!" -ForegroundColor Green
+}
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "`nNext steps on the server machine:"
-Write-Host "  1. cd `"$NetworkPath`""
-Write-Host "  2. npm install --omit=dev"
-Write-Host "  3. npm run prod:all"
-Write-Host "`nOr run the startup script for silent background mode:"
-Write-Host "  .\scripts\start-shareme-prod.ps1"
+Write-Host "Summary:"
+Write-Host "  Candidate changed paths: $($changedPathSet.Count)"
+Write-Host "  Expanded directories:    $expandedDirectoryCount"
+Write-Host "  Excluded paths:          $excludedCount"
+Write-Host "  Missing sources:         $missingSourceCount"
+Write-Host "  Copied files:            $copiedCount"
+Write-Host "  Unchanged files:         $unchangedCount"
+Write-Host "  Failed files:            $failedCount"
+Write-Host "`nManual build steps on the server machine:"
+Write-Host "  1. Open PowerShell as Administrator (if needed for permission)."
+Write-Host "  2. cd `"$NetworkPath`""
+Write-Host "  3. npm install --omit=dev"
+Write-Host "  4. cd .\screens\sharemeweb"
+Write-Host "  5. npm install --omit=dev"
+Write-Host "  6. npm run build"
+Write-Host "  7. cd ..\eventscorer"
+Write-Host "  8. npm install --omit=dev"
+Write-Host "  9. npm run build"
 Write-Host "========================================`n" -ForegroundColor Cyan
