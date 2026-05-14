@@ -28,6 +28,21 @@ function Is-GitRepo([string]$RepoPath) {
     return $LASTEXITCODE -eq 0
 }
 
+function Get-CommandOutputTrimmed([scriptblock]$Command) {
+    $output = & $Command
+
+    if ($LASTEXITCODE -ne 0 -or $null -eq $output) {
+        return ""
+    }
+
+    if ($output -is [System.Array]) {
+        $joined = ($output | ForEach-Object { "$_" }) -join "`n"
+        return $joined.Trim()
+    }
+
+    return "$output".Trim()
+}
+
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "  Push All Repositories" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
@@ -60,8 +75,8 @@ foreach ($repo in $repos) {
     }
 
     try {
-        $branch = (& git -C $path rev-parse --abbrev-ref HEAD).Trim()
-        $origin = (& git -C $path remote get-url origin 2>$null).Trim()
+        $branch = Get-CommandOutputTrimmed { git -C $path rev-parse --abbrev-ref HEAD }
+        $origin = Get-CommandOutputTrimmed { git -C $path remote get-url origin 2>$null }
         $statusLines = @(& git -c core.quotepath=false -C $path status --porcelain)
         $hasWorkingChanges = $statusLines.Count -gt 0
 
@@ -101,7 +116,7 @@ foreach ($repo in $repos) {
             continue
         }
 
-        $upstream = (& git -C $path rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>$null).Trim()
+        $upstream = Get-CommandOutputTrimmed { git -C $path rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>$null }
         if ($upstream) {
             Invoke-GitChecked -RepoPath $path -GitArgs @("push", "origin", $branch)
         } else {
