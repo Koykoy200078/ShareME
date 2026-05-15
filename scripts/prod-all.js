@@ -5,6 +5,7 @@ const fs = require('fs')
 
 const rootDir = path.resolve(__dirname, '..')
 const webDir = path.join(rootDir, 'screens', 'sharemeweb')
+const eventscorerDir = path.join(rootDir, 'screens', 'eventscorer')
 const npmCommand = 'npm'
 
 // ─── Load root .env so ports are driven by a single config file ──────────────
@@ -61,9 +62,18 @@ const STATIC_SERVER_IP = (process.env.SERVER_IP || '').trim()
 const BACKEND_HOST = isLocalIPv4Address(STATIC_SERVER_IP) ? STATIC_SERVER_IP : getLocalIPAddress()
 
 // ─── Resolve ports from env (after loading .env) ─────────────────────────────
-const BACKEND_PORT = parseInt(process.env.PORT || '3007', 10)
-const FRONTEND_PORT = parseInt(process.env.FRONTEND_PORT || '3000', 10)
-const EVENTSCORER_PORT = parseInt(process.env.EVENTSCORER_PORT || '3001', 10)
+function parsePortFromEnv(key, fallback) {
+	const rawValue = (process.env[key] || String(fallback)).trim()
+	const parsed = Number.parseInt(rawValue, 10)
+	if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+		throw new Error(`[prod:all] Invalid ${key}="${rawValue}". Expected an integer between 1 and 65535.`)
+	}
+	return parsed
+}
+
+const BACKEND_PORT = parsePortFromEnv('PORT', 3007)
+const FRONTEND_PORT = parsePortFromEnv('FRONTEND_PORT', 3000)
+const EVENTSCORER_PORT = parsePortFromEnv('EVENTSCORER_PORT', 3001)
 const BACKEND_ORIGIN = `${PROTOCOL}://${BACKEND_HOST}:${BACKEND_PORT}`
 const NEXT_PROXY_API_PORT = BACKEND_PORT
 const NEXT_PROXY_API_ORIGIN = `http://127.0.0.1:${NEXT_PROXY_API_PORT}`
@@ -79,6 +89,34 @@ let shuttingDown = false
 let backend = null
 let frontend = null
 let eventscorer = null
+
+function ensureUniquePorts() {
+	const checks = [
+		{ name: 'backend', port: BACKEND_PORT },
+		{ name: 'frontend', port: FRONTEND_PORT },
+		{ name: 'eventscorer', port: EVENTSCORER_PORT },
+	]
+	const seen = new Map()
+	for (const check of checks) {
+		if (seen.has(check.port)) {
+			const first = seen.get(check.port)
+			throw new Error(`[prod:all] Port collision: ${first} and ${check.name} both use ${check.port}. Set distinct PORT/FRONTEND_PORT/EVENTSCORER_PORT values in .env.`)
+		}
+		seen.set(check.port, check.name)
+	}
+}
+
+function ensureProductionBuildArtifacts() {
+	const buildChecks = [
+		{ name: 'sharemeweb', file: path.join(webDir, '.next', 'BUILD_ID') },
+		{ name: 'eventscorer', file: path.join(eventscorerDir, '.next', 'BUILD_ID') },
+	]
+	const missing = buildChecks.filter((item) => !fs.existsSync(item.file))
+	if (missing.length > 0) {
+		const names = missing.map((item) => item.name).join(', ')
+		throw new Error(`[prod:all] Missing Next.js production build artifact(s) for: ${names}. Build these apps before running prod mode.`)
+	}
+}
 
 function buildSpawnEnv(envOverrides = {}) {
 	const env = {}
@@ -147,6 +185,9 @@ async function ensurePortsAreAvailable() {
 }
 
 async function main() {
+	ensureUniquePorts()
+	ensureProductionBuildArtifacts()
+
 	const ready = await ensurePortsAreAvailable()
 	if (!ready) {
 		process.exit(1)
@@ -171,7 +212,6 @@ async function main() {
 		NODE_ENV: 'production',
 	})
 
-	const eventscorerDir = path.join(rootDir, 'screens', 'eventscorer')
 	eventscorer = startProcess('eventscorer', frontendArgs[0], frontendArgs.slice(1), eventscorerDir, {
 		UNIFIED_API_ORIGIN: BACKEND_ORIGIN,
 		NEXT_PROXY_API_ORIGIN,

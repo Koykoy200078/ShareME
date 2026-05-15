@@ -16,6 +16,14 @@ const app = express()
 const PORT = process.env.PORT || 3000
 const MIN_FREE_BYTES = (parseInt(process.env.MIN_FREE_MB, 10) || 100) * 1024 * 1024
 
+function parsePort(value, fallback) {
+	const parsed = Number.parseInt(String(value || ''), 10)
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+const EVENTSCORER_PORT = parsePort(process.env.EVENTSCORER_PORT, 3001)
+const EVENTSCORER_INTERNAL_ORIGIN = (process.env.EVENTSCORER_INTERNAL_ORIGIN || `http://127.0.0.1:${EVENTSCORER_PORT}`).replace(/\/+$/, '')
+
 // WebSocket clients storage with metadata
 let wsClients = new Map() // Map<WebSocket, { isAlive: boolean, clientIP: string }>
 let activeUploaders = new Map() // Map<clientId, { filename, progress, startTime }>
@@ -689,6 +697,121 @@ function broadcastScoreUpdate(payload) {
 		if (client.readyState === 1) client.send(encodedPayload) // WebSocket.OPEN
 	}
 }
+
+function eventscorerQuerySuffix(req) {
+	const source = req.originalUrl || req.url || ''
+	const queryIndex = source.indexOf('?')
+	return queryIndex === -1 ? '' : source.slice(queryIndex)
+}
+
+function eventscorerForwardHeaders(req, includeBody) {
+	const headers = {
+		Accept: req.headers.accept || 'application/json',
+		'X-Forwarded-Host': req.headers.host || '',
+		'X-Forwarded-Proto': req.protocol || 'http',
+	}
+
+	const remoteAddress = req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : ''
+	const forwardedFor = req.headers['x-forwarded-for']
+	if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+		headers['X-Forwarded-For'] = forwardedFor
+	} else if (remoteAddress) {
+		headers['X-Forwarded-For'] = remoteAddress
+	}
+
+	if (includeBody) {
+		headers['Content-Type'] = 'application/json'
+	}
+
+	return headers
+}
+
+async function proxyEventscorerApi(req, res, upstreamPath) {
+	const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
+	const targetUrl = `${EVENTSCORER_INTERNAL_ORIGIN}${upstreamPath}${eventscorerQuerySuffix(req)}`
+
+	const options = {
+		method: req.method,
+		headers: eventscorerForwardHeaders(req, hasBody),
+		cache: 'no-store',
+	}
+
+	if (hasBody) {
+		options.body = JSON.stringify(req.body === undefined ? {} : req.body)
+	}
+
+	try {
+		const upstreamResponse = await fetch(targetUrl, options)
+		const responseText = await upstreamResponse.text()
+
+		const contentType = upstreamResponse.headers.get('content-type')
+		if (contentType) {
+			res.setHeader('Content-Type', contentType)
+		}
+
+		const cacheControl = upstreamResponse.headers.get('cache-control')
+		if (cacheControl) {
+			res.setHeader('Cache-Control', cacheControl)
+		}
+
+		res.status(upstreamResponse.status)
+		res.send(responseText)
+	} catch (error) {
+		console.error('[eventscorer] API proxy failed:', error.message)
+		res.status(502).json({
+			error: 'EventScorer API upstream is unavailable.',
+			upstream: EVENTSCORER_INTERNAL_ORIGIN,
+		})
+	}
+}
+
+app.get('/api/eventscorer/events', (req, res) => {
+	void proxyEventscorerApi(req, res, '/api/events')
+})
+
+app.post('/api/eventscorer/events', (req, res) => {
+	void proxyEventscorerApi(req, res, '/api/events')
+})
+
+app.get('/api/eventscorer/admin/events/:eventId', (req, res) => {
+	const eventId = (req.params.eventId || '').trim()
+	if (!eventId) {
+		res.status(400).json({ error: 'Event ID is required.' })
+		return
+	}
+
+	void proxyEventscorerApi(req, res, `/api/admin/events/${encodeURIComponent(eventId)}`)
+})
+
+app.patch('/api/eventscorer/admin/events/:eventId', (req, res) => {
+	const eventId = (req.params.eventId || '').trim()
+	if (!eventId) {
+		res.status(400).json({ error: 'Event ID is required.' })
+		return
+	}
+
+	void proxyEventscorerApi(req, res, `/api/admin/events/${encodeURIComponent(eventId)}`)
+})
+
+app.get('/api/eventscorer/judge/:token', (req, res) => {
+	const token = (req.params.token || '').trim()
+	if (!token) {
+		res.status(400).json({ error: 'Judge token is required.' })
+		return
+	}
+
+	void proxyEventscorerApi(req, res, `/api/judge/${encodeURIComponent(token)}`)
+})
+
+app.post('/api/eventscorer/judge/:token', (req, res) => {
+	const token = (req.params.token || '').trim()
+	if (!token) {
+		res.status(400).json({ error: 'Judge token is required.' })
+		return
+	}
+
+	void proxyEventscorerApi(req, res, `/api/judge/${encodeURIComponent(token)}`)
+})
 
 // REST endpoint for eventscorer Next.js app to trigger broadcasts
 app.post('/api/eventscorer/broadcast', express.json(), (req, res) => {

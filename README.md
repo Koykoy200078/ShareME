@@ -30,26 +30,36 @@ A simple and elegant Node.js application for sharing files and folders over a tr
 ### Installation
 
 1. Install backend dependencies:
+
 ```powershell
 cd C:\Projects\ShareME
 npm install
 ```
 
 2. Install frontend dependencies:
+
 ```powershell
 cd screens\sharemeweb
 npm install
 ```
 
 3. Configure your Environment:
-Create a `.env` file in the root directory (or use the existing one):
+   Create a `.env` file in the root directory (or use the existing one):
+
 ```env
 PORT=3007
 FRONTEND_PORT=3000
 EVENTSCORER_PORT=3001
+EVENTSCORER_DB_HOST=127.0.0.1
+EVENTSCORER_DB_PORT=3306
+EVENTSCORER_DB_USER=root
+EVENTSCORER_DB_PASSWORD=your_password_here
+EVENTSCORER_DB_NAME=shareme_eventscorer
+EVENTSCORER_DB_POOL_SIZE=10
 ```
 
 4. Start the Application:
+
 ```powershell
 cd C:\Projects\ShareME
 npm run dev:all
@@ -59,6 +69,30 @@ npm run dev:all
    - Local: `http://localhost:3000`
    - Network: `http://YOUR_LOCAL_IP:3000`
 
+## EventScorer API and DB Operations
+
+- Root Express (`server.js`) owns EventScorer API endpoints via `/api/eventscorer/*`.
+- EventScorer frontend requests are rewritten to this backend namespace.
+
+MySQL rollout commands:
+
+```powershell
+npm run eventscorer:db:migrate
+```
+
+The migrate command now applies schema changes and imports `screens/eventscorer/data/events.json` when the target database is empty.
+
+Rollback (requires explicit confirmation):
+
+```powershell
+npm run eventscorer:db:rollback -- --yes
+```
+
+SQL artifacts:
+
+- `scripts/sql/eventscorer-migration.sql`
+- `scripts/sql/eventscorer-rollback.sql`
+
 ## 📖 Deployment & Server Setup
 
 To deploy this application to a dedicated server PC on your network, use the included deployment scripts:
@@ -67,7 +101,7 @@ To deploy this application to a dedicated server PC on your network, use the inc
 2. **Install on Server**: Connect to your server, navigate to the folder, and run `npm install` in both the root directory and `screens\sharemeweb`.
 3. **Register Background Task**: Run `.\scripts\register-shareme-startup.ps1` on the server as Administrator. ShareME will now automatically start completely hidden in the background every time the server boots up!
 
-*(For a full breakdown, read the `scripts\SERVER_SETUP_GUIDE.md` document).*
+_(For a full breakdown, read the `scripts\SERVER_SETUP_GUIDE.md` document)._
 
 ## 📁 Project Structure
 
@@ -77,8 +111,8 @@ ShareME/
 ├── scripts/            # Deployment and auto-startup PowerShell scripts
 ├── screens/
 │   ├── sharemeweb/     # ShareME Next.js frontend (Port 3000)
-│   │   ├── app/        
-│   │   └── public/     
+│   │   ├── app/
+│   │   └── public/
 │   └── eventscorer/    # EventScorer Next.js frontend (Port 3001)
 │       └── app/
 ├── uploads/            # Uploaded files storage (auto-created)
@@ -101,6 +135,7 @@ The server automatically binds to `0.0.0.0` to accept connections from any netwo
 The backend runs on port `3007`, and the Next.js frontend runs on `3000`.
 
 Recommended LAN controls:
+
 - Allow inbound access only on private network profiles.
 - Restrict access to your trusted subnet via firewall rules.
 - Avoid exposing ports `3000` and `3007` beyond your local network.

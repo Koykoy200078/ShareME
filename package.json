@@ -11,6 +11,8 @@
 		"dev": "nodemon --watch server.js --watch config.json --watch .env --ext js,json --ignore screens/** --ignore uploads/** --ignore node_modules/** --exec \"node --max-old-space-size=8192 --max-http-header-size=80000 server.js\"",
 		"dev:all": "node scripts/dev-all.js",
 		"prod:all": "node scripts/prod-all.js",
+		"eventscorer:db:migrate": "node scripts/eventscorer-db-migrate.js",
+		"eventscorer:db:rollback": "node scripts/eventscorer-db-rollback.js",
 		"push:all": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\push-all-repos.ps1"
 	},
 	"keywords": [
@@ -26,6 +28,7 @@
 		"dotenv": "^17.3.1",
 		"express": "^4.18.2",
 		"httpolyglot": "^0.1.2",
+		"mysql2": "^3.15.2",
 		"multer": "^1.4.5-lts.1",
 		"pdf-to-printer": "^5.7.0",
 		"ws": "^8.14.2"
