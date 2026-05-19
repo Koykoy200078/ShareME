@@ -8,6 +8,7 @@ const compression = require('compression')
 const { WebSocketServer } = require('ws')
 const { exec } = require('child_process')
 const pdf2printer = require('pdf-to-printer')
+const { getEventscorerDbPressure } = require('./scripts/eventscorer-db-pressure')
 
 // Load environment variables from .env if present
 require('dotenv').config()
@@ -711,6 +712,14 @@ function eventscorerForwardHeaders(req, includeBody) {
 		'X-Forwarded-Proto': req.protocol || 'http',
 	}
 
+	if (req.headers.cookie) {
+		headers.Cookie = req.headers.cookie
+	}
+
+	if (req.headers.authorization) {
+		headers.Authorization = req.headers.authorization
+	}
+
 	const remoteAddress = req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : ''
 	const forwardedFor = req.headers['x-forwarded-for']
 	if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
@@ -771,6 +780,29 @@ app.get('/api/eventscorer/events', (req, res) => {
 
 app.post('/api/eventscorer/events', (req, res) => {
 	void proxyEventscorerApi(req, res, '/api/events')
+})
+
+app.get('/api/eventscorer/health/db-pressure', async (req, res) => {
+	const strict = req.query.strict === '1' || req.query.strict === 'true'
+
+	try {
+		const report = await getEventscorerDbPressure()
+
+		if (strict && report.level !== 'ok') {
+			res.status(report.level === 'critical' ? 503 : 429).json(report)
+			return
+		}
+
+		res.status(200).json(report)
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Unable to read EventScorer DB pressure.'
+		res.status(500).json({
+			service: 'eventscorer-db-pressure',
+			level: 'critical',
+			ok: false,
+			error: message,
+		})
+	}
 })
 
 app.get('/api/eventscorer/admin/events/:eventId', (req, res) => {

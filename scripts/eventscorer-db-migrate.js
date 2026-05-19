@@ -16,6 +16,14 @@ const TABLE_SUBMISSIONS = 'es_submissions'
 const TABLE_SUBMISSION_SAVED_CONTESTANTS = 'es_submission_saved_contestants'
 const TABLE_SUBMISSION_SCORES = 'es_submission_scores'
 
+const DEFAULT_RUBRIC_LEGEND = [
+	{ score: 4, label: 'Excellent' },
+	{ score: 3, label: 'Exceeds Expectations' },
+	{ score: 2, label: 'Meets Expectations' },
+	{ score: 1, label: 'Meets Expectations Sometimes' },
+	{ score: 0, label: 'Does Not Meet Expectations' },
+]
+
 const DEFAULT_EVENTS_JSON_PATH = path.join(__dirname, '..', 'screens', 'eventscorer', 'data', 'events.json')
 
 function compactWhitespace(value) {
@@ -56,6 +64,44 @@ function toPositiveNumberOrNull(value) {
 	const numeric = typeof value === 'number' ? value : Number(value)
 	if (!Number.isFinite(numeric) || numeric <= 0) return null
 	return Math.round(numeric * 1000) / 1000
+}
+
+function normalizeRubricLegend(rawLegend) {
+	if (!Array.isArray(rawLegend)) {
+		return [...DEFAULT_RUBRIC_LEGEND]
+	}
+
+	const normalized = rawLegend
+		.map((entry) => {
+			if (!entry || typeof entry !== 'object') {
+				return null
+			}
+
+			const score = typeof entry.score === 'number' ? entry.score : Number(entry.score)
+			const label = compactWhitespace(entry.label)
+
+			if (!Number.isFinite(score) || score < 0 || !label) {
+				return null
+			}
+
+			return {
+				score: Math.round(score * 1000) / 1000,
+				label,
+			}
+		})
+		.filter((entry) => entry !== null)
+
+	if (normalized.length === 0) {
+		return [...DEFAULT_RUBRIC_LEGEND]
+	}
+
+	return normalized.sort((left, right) => {
+		if (right.score !== left.score) {
+			return right.score - left.score
+		}
+
+		return left.label.localeCompare(right.label)
+	})
 }
 
 function normalizeIsoTimestamp(value, fallbackIso) {
@@ -402,6 +448,7 @@ function normalizeEvent(rawEvent, used) {
 	}
 
 	const eventScoringType = parseEventScoringType(rawEvent.eventScoringType) ?? inferEventScoringType(criteria)
+	const rubricLegend = normalizeRubricLegend(rawEvent.rubricLegend)
 
 	return {
 		id: eventId,
@@ -409,6 +456,7 @@ function normalizeEvent(rawEvent, used) {
 		description: description || null,
 		createdBy: createdBy || null,
 		eventScoringType,
+		rubricLegend,
 		createdAt: createdAtIso,
 		contestants,
 		judges,
@@ -481,8 +529,32 @@ async function insertBatch(connection, sqlPrefix, rows, chunkSize = 250) {
 	}
 }
 
+async function ensureRubricLegendColumn(connection) {
+	const [rows] = await connection.query(
+		`SELECT COUNT(*) AS total
+		 FROM information_schema.columns
+		 WHERE table_schema = DATABASE()
+		   AND table_name = ?
+		   AND column_name = ?`,
+		[TABLE_EVENTS, 'rubric_legend_json'],
+	)
+
+	const exists = Number(rows?.[0]?.total || 0) > 0
+	if (!exists) {
+		await connection.query(`ALTER TABLE ${TABLE_EVENTS} ADD COLUMN rubric_legend_json LONGTEXT NULL AFTER event_scoring_type`)
+	}
+}
+
 async function importNormalizedEvent(connection, event) {
-	await connection.execute(`INSERT INTO ${TABLE_EVENTS} (id, title, description, created_by, event_scoring_type, created_at) VALUES (?, ?, ?, ?, ?, ?)`, [event.id, event.title, event.description, event.createdBy, event.eventScoringType, toMySqlDateTime(event.createdAt)])
+	await connection.execute(`INSERT INTO ${TABLE_EVENTS} (id, title, description, created_by, event_scoring_type, rubric_legend_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, [
+		event.id,
+		event.title,
+		event.description,
+		event.createdBy,
+		event.eventScoringType,
+		JSON.stringify(normalizeRubricLegend(event.rubricLegend)),
+		toMySqlDateTime(event.createdAt),
+	])
 
 	await insertBatch(
 		connection,
@@ -660,6 +732,7 @@ async function run() {
 		await connection.query(`CREATE DATABASE IF NOT EXISTS \`${config.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`)
 		await connection.query(`USE \`${config.database}\``)
 		await connection.query(migrationSql)
+		await ensureRubricLegendColumn(connection)
 
 		const importSummary = await importEventsJsonIfDatabaseIsEmpty(connection)
 

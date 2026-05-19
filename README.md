@@ -55,7 +55,11 @@ EVENTSCORER_DB_PORT=3306
 EVENTSCORER_DB_USER=root
 EVENTSCORER_DB_PASSWORD=your_password_here
 EVENTSCORER_DB_NAME=shareme_eventscorer
-EVENTSCORER_DB_POOL_SIZE=10
+EVENTSCORER_DB_POOL_SIZE=4
+EVENTSCORER_DB_MAX_IDLE=2
+EVENTSCORER_DB_IDLE_TIMEOUT_MS=15000
+EVENTSCORER_DB_QUEUE_LIMIT=200
+EVENTSCORER_DB_RESERVED_CONNECTIONS=5
 ```
 
 4. Start the Application:
@@ -87,6 +91,23 @@ Rollback (requires explicit confirmation):
 ```powershell
 npm run eventscorer:db:rollback -- --yes
 ```
+
+DB pressure checks:
+
+```powershell
+npm run eventscorer:db:pressure
+```
+
+Strict mode (non-zero exit when warning/critical):
+
+```powershell
+npm run eventscorer:db:pressure:strict
+```
+
+Live endpoint for monitoring:
+
+- `GET /api/eventscorer/health/db-pressure`
+- `GET /api/eventscorer/health/db-pressure?strict=1` (returns non-200 when pressure is warning/critical)
 
 SQL artifacts:
 
