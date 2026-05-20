@@ -4,6 +4,7 @@
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS es_submission_scores;
+DROP TABLE IF EXISTS es_submission_contestant_details;
 DROP TABLE IF EXISTS es_submission_saved_contestants;
 DROP TABLE IF EXISTS es_submissions;
 DROP TABLE IF EXISTS es_presentation_slot_judges;

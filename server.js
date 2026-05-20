@@ -778,6 +778,10 @@ app.get('/api/eventscorer/events', (req, res) => {
 	void proxyEventscorerApi(req, res, '/api/events')
 })
 
+app.get('/api/eventscorer/events/judges', (req, res) => {
+	void proxyEventscorerApi(req, res, '/api/events/judges')
+})
+
 app.post('/api/eventscorer/events', (req, res) => {
 	void proxyEventscorerApi(req, res, '/api/events')
 })

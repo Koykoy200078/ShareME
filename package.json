@@ -12,6 +12,7 @@
 		"dev:all": "node scripts/dev-all.js",
 		"prod:all": "node scripts/prod-all.js",
 		"eventscorer:db:migrate": "node scripts/eventscorer-db-migrate.js",
+		"eventscorer:db:merge": "node scripts/eventscorer-db-merge-dump.js",
 		"eventscorer:db:rollback": "node scripts/eventscorer-db-rollback.js",
 		"eventscorer:db:pressure": "node scripts/eventscorer-db-pressure.js --pretty",
 		"eventscorer:db:pressure:strict": "node scripts/eventscorer-db-pressure.js --pretty --strict",

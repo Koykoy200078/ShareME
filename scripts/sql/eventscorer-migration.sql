@@ -6,6 +6,7 @@
 -- 4) Repairs common integrity issues (orphans, clamped scores, inferred saved contestants)
 
 SET @schema_name := DATABASE();
+SET time_zone = '+08:00';
 
 CREATE TABLE IF NOT EXISTS es_events (
 	id VARCHAR(36) NOT NULL,
@@ -153,6 +154,18 @@ CREATE TABLE IF NOT EXISTS es_submission_scores (
 	CONSTRAINT fk_es_submission_scores_submission FOREIGN KEY (submission_id) REFERENCES es_submissions(id) ON DELETE CASCADE,
 	CONSTRAINT fk_es_submission_scores_contestant FOREIGN KEY (contestant_id) REFERENCES es_contestants(id) ON DELETE CASCADE,
 	CONSTRAINT fk_es_submission_scores_subcriterion FOREIGN KEY (subcriterion_id) REFERENCES es_subcriteria(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS es_submission_contestant_details (
+	submission_id BIGINT UNSIGNED NOT NULL,
+	contestant_id VARCHAR(36) NOT NULL,
+	strand VARCHAR(255) NULL,
+	remark VARCHAR(255) NULL,
+	additional_info TEXT NULL,
+	PRIMARY KEY (submission_id, contestant_id),
+	INDEX idx_es_submission_contestant_details_contestant (contestant_id),
+	CONSTRAINT fk_es_submission_contestant_details_submission FOREIGN KEY (submission_id) REFERENCES es_submissions(id) ON DELETE CASCADE,
+	CONSTRAINT fk_es_submission_contestant_details_contestant FOREIGN KEY (contestant_id) REFERENCES es_contestants(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Compatibility: es_contestant_participants may still use legacy column `name`.
@@ -322,6 +335,12 @@ UPDATE es_submission_scores ss
 JOIN es_subcriteria sc ON sc.id = ss.subcriterion_id
 SET ss.score = ROUND(LEAST(GREATEST(COALESCE(ss.score, 0), 0), GREATEST(COALESCE(sc.max_score, 0), 0)), 3);
 
+UPDATE es_submission_contestant_details
+SET
+	strand = NULLIF(TRIM(COALESCE(strand, '')), ''),
+	remark = NULLIF(TRIM(COALESCE(remark, '')), ''),
+	additional_info = NULLIF(TRIM(COALESCE(additional_info, '')), '');
+
 -- Recompute parent criterion max_score from subcriteria to keep totals accurate.
 UPDATE es_criteria c
 JOIN (
@@ -369,6 +388,12 @@ LEFT JOIN es_submissions s ON s.id = ss.submission_id
 LEFT JOIN es_contestants c ON c.id = ss.contestant_id
 LEFT JOIN es_subcriteria sc ON sc.id = ss.subcriterion_id
 WHERE s.id IS NULL OR c.id IS NULL OR sc.id IS NULL;
+
+DELETE scd
+FROM es_submission_contestant_details scd
+LEFT JOIN es_submissions s ON s.id = scd.submission_id
+LEFT JOIN es_contestants c ON c.id = scd.contestant_id
+WHERE s.id IS NULL OR c.id IS NULL;
 
 -- Ensure each contestant has a presentation slot.
 INSERT INTO es_presentation_slots (id, event_id, label, contestant_id, sort_order)

@@ -1,6 +1,7 @@
 const fs = require('fs/promises')
 const path = require('path')
 const { randomBytes, randomUUID } = require('crypto')
+const { applyDatabaseTimezone, mergeDumpFile, parseMergeCliArgs } = require('./lib/eventscorer-dump-merge')
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') })
 
@@ -715,6 +716,15 @@ async function importEventsJsonIfDatabaseIsEmpty(connection) {
 }
 
 async function run() {
+	const cliOptions = parseMergeCliArgs(process.argv.slice(2))
+	if (cliOptions.errors.length > 0) {
+		throw new Error(cliOptions.errors.join(' '))
+	}
+
+	if (cliOptions.unknownArgs.length > 0) {
+		console.warn(`[eventscorer:migrate] Ignoring unknown argument(s): ${cliOptions.unknownArgs.join(' ')}`)
+	}
+
 	const mysql = loadMysqlClient()
 	const config = buildDatabaseConfig()
 	const sqlPath = path.join(__dirname, 'sql', 'eventscorer-migration.sql')
@@ -733,8 +743,43 @@ async function run() {
 		await connection.query(`USE \`${config.database}\``)
 		await connection.query(migrationSql)
 		await ensureRubricLegendColumn(connection)
+		await applyDatabaseTimezone(connection, cliOptions.timezone, (message) => console.log(`[eventscorer:migrate] ${message}`))
 
-		const importSummary = await importEventsJsonIfDatabaseIsEmpty(connection)
+		const sourcePaths = cliOptions.sourcePaths.length > 0 ? cliOptions.sourcePaths : cliOptions.sourcePath ? [cliOptions.sourcePath] : []
+
+		if (sourcePaths.length > 0) {
+			let totalProcessedRows = 0
+			let totalProcessedStatements = 0
+			let totalAffectedRows = 0
+			let totalWarnings = 0
+
+			for (let index = 0; index < sourcePaths.length; index += 1) {
+				const sourcePath = sourcePaths[index]
+				console.log(`[eventscorer:migrate] Source ${index + 1}/${sourcePaths.length}: ${sourcePath}`)
+
+				const mergeReport = await mergeDumpFile(connection, sourcePath, {
+					dryRun: cliOptions.dryRun,
+					batchSize: cliOptions.batchSize,
+					tablePrefix: cliOptions.tablePrefix,
+					includeAllTables: cliOptions.includeAllTables,
+					logger: (message) => console.log(`[eventscorer:migrate] ${message}`),
+				})
+
+				totalProcessedRows += mergeReport.processedRows
+				totalProcessedStatements += mergeReport.processedStatements
+				totalAffectedRows += mergeReport.affectedRows
+				totalWarnings += mergeReport.parseWarnings.length + mergeReport.executionWarnings.length
+			}
+
+			console.log(`[eventscorer:migrate] ${cliOptions.dryRun ? 'Dry-run merge complete' : 'Dump merge complete'} across ${sourcePaths.length} dump(s): ${totalProcessedRows} row tuple(s) processed across ${totalProcessedStatements} batch query(ies), ${totalAffectedRows} affected rows.`)
+
+			if (totalWarnings > 0) {
+				console.log(`[eventscorer:migrate] Dump merge finished with ${totalWarnings} warning(s).`)
+			}
+		}
+
+		const shouldImportEventsJson = !(sourcePaths.length > 0 && cliOptions.dryRun)
+		const importSummary = shouldImportEventsJson ? await importEventsJsonIfDatabaseIsEmpty(connection) : { status: 'skipped-merge-dry-run' }
 
 		console.log(`[eventscorer:migrate] Schema ready at ${config.host}:${config.port}/${config.database}`)
 
@@ -750,6 +795,8 @@ async function run() {
 			console.log(`[eventscorer:migrate] events.json not found at ${importSummary.jsonPath}. Schema migration completed.`)
 		} else if (importSummary.status === 'disabled') {
 			console.log('[eventscorer:migrate] events.json import disabled (EVENTSCORER_IMPORT_EVENTS_JSON=0).')
+		} else if (importSummary.status === 'skipped-merge-dry-run') {
+			console.log('[eventscorer:migrate] Skipped events.json import because --merge-dump was run with --dry-run.')
 		} else {
 			console.log(`[eventscorer:migrate] events.json import result: ${importSummary.status}.`)
 		}
