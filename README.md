@@ -98,6 +98,30 @@ Merge multiple dumps in one run (older to newer order):
 npm run eventscorer:db:merge -- --source "C:\Users\Franc\Desktop\dump.sql" --source "C:\Users\Franc\Desktop\dump1.sql" --source "C:\Users\Franc\Desktop\aw.sql"
 ```
 
+Audit already-registered judges and show a consolidated merge-ready directory (grouped by normalized judge name):
+
+```powershell
+npm run eventscorer:db:audit-judges
+```
+
+Auto-fix judge aliases, merge duplicate judge rows within the same event, remove redundant judge IDs, and reindex sort order values:
+
+```powershell
+npm run eventscorer:db:fix-judges
+```
+
+Apply the fixes (commit transaction):
+
+```powershell
+npm run eventscorer:db:fix-judges -- --apply
+```
+
+Export the full judge audit report as JSON:
+
+```powershell
+npm run eventscorer:db:audit-judges -- --out "scripts\reports\judge-audit.json"
+```
+
 Run schema migration and dump merge in one command:
 
 ```powershell
