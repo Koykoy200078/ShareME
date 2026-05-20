@@ -84,85 +84,22 @@ MySQL rollout commands:
 npm run eventscorer:db:migrate
 ```
 
-The migrate command now applies schema changes and imports `screens/eventscorer/data/events.json` when the target database is empty.
+The migrate command is now **schema-only**:
 
-Merge a SQL dump with upsert semantics (insert new rows, update changed rows, keep existing rows):
+- Creates/updates EventScorer tables.
+- Applies normalized table structure.
+- Does not import JSON files.
+- Does not merge dumps.
+- Does not run data cleanup/fix scripts.
 
-```powershell
-npm run eventscorer:db:merge -- --source "C:\Users\Franc\Desktop\dump1.sql"
-```
+Database normalization notes:
 
-Merge multiple dumps in one run (older to newer order):
-
-```powershell
-npm run eventscorer:db:merge -- --source "C:\Users\Franc\Desktop\dump.sql" --source "C:\Users\Franc\Desktop\dump1.sql" --source "C:\Users\Franc\Desktop\aw.sql"
-```
-
-Audit already-registered judges and show a consolidated merge-ready directory (grouped by normalized judge name):
-
-```powershell
-npm run eventscorer:db:audit-judges
-```
-
-Auto-fix judge aliases, merge duplicate judge rows within the same event, remove redundant judge IDs, and reindex sort order values:
-
-```powershell
-npm run eventscorer:db:fix-judges
-```
-
-Apply the fixes (commit transaction):
-
-```powershell
-npm run eventscorer:db:fix-judges -- --apply
-```
-
-Export the full judge audit report as JSON:
-
-```powershell
-npm run eventscorer:db:audit-judges -- --out "scripts\reports\judge-audit.json"
-```
-
-Run schema migration and dump merge in one command:
-
-```powershell
-npm run eventscorer:db:migrate -- --merge-dump "C:\Users\Franc\Desktop\dump1.sql"
-```
-
-Optional flags for merge commands:
-
-- `--dry-run` parses/validates without writing merged data.
-- `--batch-size <number>` controls upsert batch size (default `200`).
-- `--table-prefix <prefix>` limits tables (default `es_`).
-- `--all-tables` merges all tables in the dump.
-- `--timezone <offset>` sets DB session timezone during migration/merge (default `+08:00` for Philippines).
-
-Rollback (requires explicit confirmation):
-
-```powershell
-npm run eventscorer:db:rollback -- --yes
-```
-
-DB pressure checks:
-
-```powershell
-npm run eventscorer:db:pressure
-```
-
-Strict mode (non-zero exit when warning/critical):
-
-```powershell
-npm run eventscorer:db:pressure:strict
-```
-
-Live endpoint for monitoring:
-
-- `GET /api/eventscorer/health/db-pressure`
-- `GET /api/eventscorer/health/db-pressure?strict=1` (returns non-200 when pressure is warning/critical)
+- Event scoring config is stored in normalized tables (`es_event_rubric_legend`, `es_event_direct_rating_config`, `es_event_direct_rating_single_strands`, `es_event_direct_rating_multi_strands`).
+- EventScorer migration no longer persists JSON config blobs in `es_events`.
 
 SQL artifacts:
 
 - `scripts/sql/eventscorer-migration.sql`
-- `scripts/sql/eventscorer-rollback.sql`
 
 ## 📖 Deployment & Server Setup
 
