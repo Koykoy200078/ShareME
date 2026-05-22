@@ -23,10 +23,46 @@ function parsePort(value, fallback) {
 
 const EVENTSCORER_PORT = parsePort(process.env.EVENTSCORER_PORT, 3001)
 const EVENTSCORER_INTERNAL_ORIGIN = (process.env.EVENTSCORER_INTERNAL_ORIGIN || `http://127.0.0.1:${EVENTSCORER_PORT}`).replace(/\/+$/, '')
+const EVENTSCORER_ADMIN_SECRET = (process.env.EVENTSCORER_ADMIN_SECRET || '').trim()
+const EVENTSCORER_WS_AUTH_SALT = 'eventscorer:admin-ws:v1'
 
 // WebSocket clients storage with metadata
 let wsClients = new Map() // Map<WebSocket, { isAlive: boolean, clientIP: string }>
 let activeUploaders = new Map() // Map<clientId, { filename, progress, startTime }>
+
+function timingSafeEqualStrings(left, right) {
+	const leftBuffer = Buffer.from(String(left ?? ''))
+	const rightBuffer = Buffer.from(String(right ?? ''))
+
+	if (leftBuffer.length !== rightBuffer.length) {
+		const maxLength = Math.max(leftBuffer.length, rightBuffer.length)
+		const paddedLeft = Buffer.concat([leftBuffer, Buffer.alloc(maxLength - leftBuffer.length)])
+		const paddedRight = Buffer.concat([rightBuffer, Buffer.alloc(maxLength - rightBuffer.length)])
+		crypto.timingSafeEqual(paddedLeft, paddedRight)
+		return false
+	}
+
+	return crypto.timingSafeEqual(leftBuffer, rightBuffer)
+}
+
+function buildEventscorerWsToken(eventId) {
+	if (!EVENTSCORER_ADMIN_SECRET) return null
+	const normalizedEventId = String(eventId || '').trim()
+	if (!normalizedEventId) return null
+	return crypto.createHmac('sha256', EVENTSCORER_ADMIN_SECRET).update(`${EVENTSCORER_WS_AUTH_SALT}:${normalizedEventId}`).digest('hex')
+}
+
+function isValidEventscorerWsToken(eventId, token) {
+	if (!EVENTSCORER_ADMIN_SECRET) return true
+	const expected = buildEventscorerWsToken(eventId)
+	if (!expected || !token) return false
+	return timingSafeEqualStrings(token, expected)
+}
+
+function isValidEventscorerBroadcastSecret(value) {
+	if (!EVENTSCORER_ADMIN_SECRET) return true
+	return timingSafeEqualStrings(value, EVENTSCORER_ADMIN_SECRET)
+}
 
 // ============================================
 // Persistent Config (config.json)
@@ -98,12 +134,6 @@ const upload = multer({
 app.use((req, res, next) => {
 	console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`)
 	next()
-})
-
-// Global error handler
-app.use((err, req, res, next) => {
-	console.error('Unhandled Error:', err)
-	res.status(500).json({ error: 'Internal Server Error', message: err.message })
 })
 
 // ============================================
@@ -631,6 +661,12 @@ async function printFileOnServer(fullPath, printerName, copies = 1, paperSize = 
 // ============================================
 // HTTP Server Configuration (forced HTTP-only)
 // ============================================
+// Global error handler (must be after routes/middleware)
+app.use((err, req, res, next) => {
+	console.error('Unhandled Error:', err)
+	res.status(500).json({ error: 'Internal Server Error', message: err.message })
+})
+
 const http = require('http')
 const server = http.createServer(app)
 
@@ -827,6 +863,14 @@ app.post('/api/eventscorer/judge/:token', (req, res) => {
 
 // REST endpoint for eventscorer Next.js app to trigger broadcasts
 app.post('/api/eventscorer/broadcast', express.json(), (req, res) => {
+	if (EVENTSCORER_ADMIN_SECRET) {
+		const headerValue = req.headers['x-eventscorer-admin-secret']
+		const providedSecret = Array.isArray(headerValue) ? headerValue[0] : headerValue
+		if (!isValidEventscorerBroadcastSecret(providedSecret)) {
+			return res.status(401).json({ error: 'Unauthorized broadcast request.' })
+		}
+	}
+
 	broadcastScoreUpdate(req.body)
 	res.status(200).json({ success: true })
 })
@@ -835,8 +879,14 @@ eventscorerWss.on('connection', (ws, req) => {
 	// Parse eventId from the URL
 	const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`)
 	const eventId = (url.searchParams.get('eventId') || '').trim()
+	const authToken = (url.searchParams.get('auth') || '').trim()
 
 	if (!eventId) {
+		ws.close()
+		return
+	}
+
+	if (!isValidEventscorerWsToken(eventId, authToken)) {
 		ws.close()
 		return
 	}
