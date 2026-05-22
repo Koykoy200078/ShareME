@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS es_events (
 	description TEXT NULL,
 	created_by VARCHAR(255) NULL,
 	event_scoring_type VARCHAR(32) NOT NULL DEFAULT 'standard',
+	rubric_legend_json LONGTEXT NULL,
+	show_rubric_legend TINYINT(1) NOT NULL DEFAULT 0,
+	direct_rating_config_json LONGTEXT NULL,
 	created_at DATETIME(3) NOT NULL,
 	PRIMARY KEY (id),
 	INDEX idx_es_events_created_at (created_at)
@@ -59,6 +62,7 @@ CREATE TABLE IF NOT EXISTS es_contestants (
 	name VARCHAR(255) NOT NULL,
 	entry_type VARCHAR(32) NOT NULL DEFAULT 'group',
 	program_tag VARCHAR(16) NULL,
+	section VARCHAR(64) NULL,
 	sort_order INT NOT NULL,
 	PRIMARY KEY (id),
 	INDEX idx_es_contestants_event_order (event_id, sort_order),
