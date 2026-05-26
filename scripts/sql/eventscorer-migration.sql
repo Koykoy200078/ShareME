@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS es_contestants (
 	name VARCHAR(255) NOT NULL,
 	entry_type VARCHAR(32) NOT NULL DEFAULT 'group',
 	program_tag VARCHAR(16) NULL,
+	noat_score DECIMAL(10,3) NULL,
 	section VARCHAR(64) NULL,
 	sort_order INT NOT NULL,
 	PRIMARY KEY (id),
