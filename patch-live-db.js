@@ -112,18 +112,32 @@ async function patch() {
     console.log(`Updated ${updatedCount} existing scores to new fractions.`);
     
     // Also patch es_events direct_rating_config_json just in case
-    const eventId = '46caee26-eb44-4d90-8583-06f961abe387';
     const [events] = await connection.query(`SELECT direct_rating_config_json FROM es_events WHERE id=?`, [eventId]);
     if (events.length > 0 && events[0].direct_rating_config_json) {
-        let jsonStr = events[0].direct_rating_config_json;
-        // Fix the json string if it has the old max scores
-        const oldJsonRegex = /"interviewComm":(\d+),"interviewPers":(\d+),"interviewInterest":(\d+),"interviewSpecial":(\d+)/g;
-        jsonStr = jsonStr.replace(oldJsonRegex, `"interviewContent":40,"interviewComm":20,"interviewPers":20,"interviewInterest":10,"interviewSpecial":10`);
-        const oldScoreWeightsRegex = /"scoreWeights":\{"aveGpa":40,"noat":40,"interviewComm":4,"interviewPers":4,"interviewInterest":8,"interviewSpecial":4\}/g;
-        jsonStr = jsonStr.replace(oldScoreWeightsRegex, `"scoreWeights":{"aveGpa":40,"noat":40,"interviewContent":8,"interviewComm":4,"interviewPers":4,"interviewInterest":2,"interviewSpecial":2}`);
+        let configStr = events[0].direct_rating_config_json;
         
-        await connection.execute(`UPDATE es_events SET direct_rating_config_json=? WHERE id=?`, [jsonStr, eventId]);
-        console.log('Patched direct_rating_config_json on es_events.');
+        // 1. Text replacement for old scores (since some JSON stringified structs might just match exactly)
+        const oldJsonRegex = /"interviewComm":(\d+),"interviewPers":(\d+),"interviewInterest":(\d+),"interviewSpecial":(\d+)/g;
+        configStr = configStr.replace(oldJsonRegex, `"interviewContent":40,"interviewComm":20,"interviewPers":20,"interviewInterest":10,"interviewSpecial":10`);
+        const oldScoreWeightsRegex = /"scoreWeights":\{"aveGpa":40,"noat":40,"interviewComm":4,"interviewPers":4,"interviewInterest":8,"interviewSpecial":4\}/g;
+        configStr = configStr.replace(oldScoreWeightsRegex, `"scoreWeights":{"aveGpa":40,"noat":40,"interviewContent":40,"interviewComm":20,"interviewPers":20,"interviewInterest":10,"interviewSpecial":10}`);
+
+        // 2. Parse JSON safely to add STEM to Aligned Strands
+        try {
+            let configObj = JSON.parse(configStr);
+            if (configObj.strandBonus && Array.isArray(configObj.strandBonus.multiAlignedStrands)) {
+                const stemStrand = "Science, Technology, Engineering, and Mathematics (STEM)";
+                if (!configObj.strandBonus.multiAlignedStrands.includes(stemStrand)) {
+                    configObj.strandBonus.multiAlignedStrands.push(stemStrand);
+                }
+            }
+            configStr = JSON.stringify(configObj);
+        } catch (err) {
+            console.error('Warning: Could not parse direct_rating_config_json as object.', err.message);
+        }
+        
+        await connection.execute(`UPDATE es_events SET direct_rating_config_json=? WHERE id=?`, [configStr, eventId]);
+        console.log('Patched direct_rating_config_json on es_events (including STEM aligned strand bonus).');
     }
 
     await connection.end();
