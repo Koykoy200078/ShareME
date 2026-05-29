@@ -9,7 +9,15 @@ async function patch() {
         database: 'shareme_db'
     });
 
-    const criterionId = '0d46e673-c147-4387-8781-3184e1c186c4';
+    const eventId = '46caee26-eb44-4d90-8583-06f961abe387';
+
+    // Find the Direct Rating criterion dynamically
+    const [criteriaRows] = await connection.query(`SELECT id FROM es_criteria WHERE event_id = ? AND name = 'Direct Rating'`, [eventId]);
+    if (criteriaRows.length === 0) {
+        console.log('Could not find Direct Rating criterion for the event.');
+        process.exit(1);
+    }
+    const criterionId = criteriaRows[0].id;
 
     // 1. Fetch old subcriteria
     const [subcriteria] = await connection.query(`SELECT * FROM es_subcriteria WHERE criterion_id = ?`, [criterionId]);
