@@ -44,6 +44,7 @@ async function migrate() {
     const newCriterionId = crypto.randomUUID();
     const newAveId = crypto.randomUUID();
     const newNoatId = crypto.randomUUID();
+    const newContentId = crypto.randomUUID();
     const newCommId = crypto.randomUUID();
     const newPersId = crypto.randomUUID();
     const newIntId = crypto.randomUUID();
@@ -63,10 +64,11 @@ async function migrate() {
     const newSubCriteria = [
         [newAveId, newCriterionId, 'AVE/GPA', 100, 0],
         [newNoatId, newCriterionId, 'NOAT', 100, 1],
-        [newCommId, newCriterionId, 'Communication Skills', 20, 2],
-        [newPersId, newCriterionId, 'Personality (Bearing)', 20, 3],
-        [newIntId, newCriterionId, 'Interest in the Program', 40, 4],
-        [newSpecId, newCriterionId, 'Special Skills', 20, 5],
+        [newContentId, newCriterionId, 'CONTENT (Course Program Related)', 40, 2],
+        [newCommId, newCriterionId, 'Communication Skills', 20, 3],
+        [newPersId, newCriterionId, 'Personality (Bearing)', 20, 4],
+        [newIntId, newCriterionId, 'Interest in the Program', 10, 5],
+        [newSpecId, newCriterionId, 'Special Skills', 10, 6],
     ];
 
     for (const sc of newSubCriteria) {
@@ -88,11 +90,13 @@ async function migrate() {
         } else if (score.subcriterion_id === interviewSub.id) {
             // Split interview score
             const total = Number(score.score);
-            const comm = Math.round((total * 4 / 20) * 1000) / 1000;
-            const pers = Math.round((total * 4 / 20) * 1000) / 1000;
-            const interest = Math.round((total * 8 / 20) * 1000) / 1000;
-            const spec = Math.round((total - (comm + pers + interest)) * 1000) / 1000;
+            const content = Math.round((total * 8 / 20) * 1000) / 1000; // 40pts
+            const comm = Math.round((total * 4 / 20) * 1000) / 1000; // 20pts
+            const pers = Math.round((total * 4 / 20) * 1000) / 1000; // 20pts
+            const interest = Math.round((total * 2 / 20) * 1000) / 1000; // 10pts
+            const spec = Math.round((total - (content + comm + pers + interest)) * 1000) / 1000; // 10pts
 
+            newScoresToInsert.push([score.submission_id, score.contestant_id, newContentId, content]);
             newScoresToInsert.push([score.submission_id, score.contestant_id, newCommId, comm]);
             newScoresToInsert.push([score.submission_id, score.contestant_id, newPersId, pers]);
             newScoresToInsert.push([score.submission_id, score.contestant_id, newIntId, interest]);
