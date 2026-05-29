@@ -1,0 +1,1 @@
+fetch('http://localhost:3001/api/eventscorer/admin/events/46caee26-eb44-4d90-8583-06f961abe387').then(r=>r.json()).then(d => console.log(JSON.stringify(d.compiled.rankings.find(r=>r.contestantName.includes('Abejero')), null, 2)))
