@@ -125,12 +125,28 @@ async function patch() {
         // 2. Parse JSON safely to add STEM to Aligned Strands
         try {
             let configObj = JSON.parse(configStr);
-            if (configObj.strandBonus && Array.isArray(configObj.strandBonus.multiAlignedStrands)) {
-                const stemStrand = "Science, Technology, Engineering, and Mathematics (STEM)";
-                if (!configObj.strandBonus.multiAlignedStrands.includes(stemStrand)) {
-                    configObj.strandBonus.multiAlignedStrands.push(stemStrand);
-                }
+            
+            // Ensure strandBonus structure exists
+            if (!configObj.strandBonus) {
+                configObj.strandBonus = {
+                    singleAlignedBonusPoints: 10,
+                    multiAlignedBonusPoints: 10,
+                    singleAlignedStrands: [],
+                    multiAlignedStrands: []
+                };
             }
+            if (!Array.isArray(configObj.strandBonus.multiAlignedStrands)) {
+                configObj.strandBonus.multiAlignedStrands = [];
+            }
+            
+            const stemStrand = "Science, Technology, Engineering, and Mathematics (STEM)";
+            if (!configObj.strandBonus.multiAlignedStrands.includes(stemStrand)) {
+                configObj.strandBonus.multiAlignedStrands.push(stemStrand);
+                console.log('Successfully injected STEM into multiAlignedStrands!');
+            } else {
+                console.log('STEM is already in multiAlignedStrands.');
+            }
+            
             configStr = JSON.stringify(configObj);
         } catch (err) {
             console.error('Warning: Could not parse direct_rating_config_json as object.', err.message);
